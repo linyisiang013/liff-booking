@@ -46,7 +46,7 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // 日曆邏輯
+  // 日曆邏輯 (維持圖二、圖三、圖四樣式)
   const getDaysInMonth = (year: number, month: number) => {
     const date = new Date(year, month, 1);
     const days = [];
@@ -133,33 +133,34 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 2 | 選擇時段 (套用您修改的邏輯) */}
+      {/* STEP 2 | 選擇時段 (修正邏輯：預設為可用，除非 API 回傳為不可用) */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 2 | 選擇時段</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           {TIMES.map(t => {
-            // 尋找 API 回傳的時段 (考慮到資料庫可能有 :00 秒數)
+            // 尋找 API 回傳的時段 (同時比對 09:40 與 09:40:00)
             const slotData = slots.find(s => s.slot_time === t || s.slot_time === t + ":00");
 
-            // 套用您的邏輯：找不到 slotData 或 is_available 為 false 則視為不可用
-            const isAvailable = slotData ? Boolean(slotData.is_available) : false;
+            // 修改這裡：如果找不到資料，或是資料顯示 is_available 不為 false，則視為可用
+            // 只有當 slotData 存在且 is_available 明確為 false 時才劃掉
+            const isFull = slotData && slotData.is_available === false;
             const isSelected = formData.slot_time === t;
 
             return (
               <button
                 key={t}
-                disabled={!isAvailable}
+                disabled={isFull}
                 onClick={() => setFormData({ ...formData, slot_time: t })}
                 style={{
                   ...s.slotBtn,
-                  background: !isAvailable ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"),
-                  color: !isAvailable ? "#ccc" : (isSelected ? "#fff" : "#5a544e"),
-                  textDecoration: !isAvailable ? "line-through" : "none",
+                  background: isFull ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"),
+                  color: isFull ? "#ccc" : (isSelected ? "#fff" : "#5a544e"),
+                  textDecoration: isFull ? "line-through" : "none",
                   border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd",
-                  cursor: !isAvailable ? "not-allowed" : "pointer"
+                  cursor: isFull ? "not-allowed" : "pointer"
                 }}
               >
-                {t} {!isAvailable && "(滿)"}
+                {t} {isFull && "(滿)"}
               </button>
             );
           })}
