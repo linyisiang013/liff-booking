@@ -8,15 +8,13 @@ export default function LiffBookingPage() {
   const [formData, setFormData] = useState({ name: "", phone: "", date: "", slot_time: "", item: "" });
   const [disabledSlots, setDisabledSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [viewDate, setViewDate] = useState(new Date()); // 用於切換日曆月份
+  const [viewDate, setViewDate] = useState(new Date());
 
-  // 初始化 LIFF
   useEffect(() => {
     const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
     if (liffId) { liff.init({ liffId }).catch(console.error); }
   }, []);
 
-  // 當選擇日期時，抓取該日期的禁用狀態
   useEffect(() => {
     if (formData.date) {
       fetch(`/api/availability?date=${formData.date}&t=${Date.now()}`)
@@ -26,7 +24,6 @@ export default function LiffBookingPage() {
     }
   }, [formData.date]);
 
-  // 日曆邏輯：生成當月天數
   const getDaysInMonth = (year: number, month: number) => {
     const date = new Date(year, month, 1);
     const days = [];
@@ -38,7 +35,16 @@ export default function LiffBookingPage() {
   };
 
   const days = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
-  const startDay = days[0].getDay(); // 該月第一天是星期幾
+  const startDay = days[0].getDay();
+
+  // 修正日期轉換：確保點擊的是本地日期的 YYYY-MM-DD
+  const handleDateClick = (day: Date) => {
+    const y = day.getFullYear();
+    const m = String(day.getMonth() + 1).padStart(2, '0');
+    const d = String(day.getDate()).padStart(2, '0');
+    const formattedDate = `${y}-${m}-${d}`;
+    setFormData({ ...formData, date: formattedDate, slot_time: "" }); // 切換日期時清空已選時段
+  };
 
   const handleSubmit = async () => {
     if (!formData.name || !formData.date || !formData.slot_time) return alert("請填寫完整資訊");
@@ -67,31 +73,35 @@ export default function LiffBookingPage() {
     <div style={{ padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" }}>
       <h2 style={{ textAlign: "center", color: "#A89A8E", marginBottom: "30px", fontWeight: "600" }}>安指 say_nail 預約系統</h2>
 
-      {/* STEP 1: 日曆部分 */}
+      {/* STEP 1: 日曆 */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 1 | 選擇預約日期</span></div>
         
         <div style={s.calendarHeader}>
-          <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} style={s.navBtn}>上個月</button>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} style={s.navBtn}>上個月</button>
           <div style={s.currentMonth}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
-          <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} style={s.navBtn}>下個月</button>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} style={s.navBtn}>下個月</button>
         </div>
 
         <div style={s.calendarGrid}>
           {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekLabel}>{d}</div>)}
-          {Array(startDay).fill(null).map((_, i) => <div key={i}></div>)}
+          {Array(startDay).fill(null).map((_, i) => <div key={`empty-${i}`}></div>)}
           {days.map(day => {
-            const dateStr = day.toISOString().split('T')[0];
+            const y = day.getFullYear();
+            const m = String(day.getMonth() + 1).padStart(2, '0');
+            const d = String(day.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${d}`;
             const isSelected = formData.date === dateStr;
             return (
               <div 
                 key={dateStr} 
-                onClick={() => setFormData({ ...formData, date: dateStr })}
+                onClick={() => handleDateClick(day)}
                 style={{
                   ...s.dayCell,
                   backgroundColor: isSelected ? "#8c7e6d" : "transparent",
                   color: isSelected ? "#fff" : "#5a544e",
-                  fontWeight: isSelected ? "bold" : "normal"
+                  fontWeight: isSelected ? "bold" : "normal",
+                  border: isSelected ? "1px solid #8c7e6d" : "none"
                 }}
               >
                 {day.getDate()}
@@ -101,7 +111,7 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 2: 時段劃掉效果 */}
+      {/* STEP 2: 時段 */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 2 | 選擇時段</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -118,7 +128,8 @@ export default function LiffBookingPage() {
                   backgroundColor: isFull ? "#f0f0f0" : (isSelected ? "#8c7e6d" : "#fff"),
                   color: isFull ? "#ccc" : (isSelected ? "#fff" : "#5a544e"),
                   textDecoration: isFull ? "line-through" : "none",
-                  border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd"
+                  border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd",
+                  cursor: isFull ? "not-allowed" : "pointer"
                 }}
               >
                 {t}
@@ -126,6 +137,7 @@ export default function LiffBookingPage() {
             );
           })}
         </div>
+        {!formData.date && <p style={{ fontSize: "12px", color: "#A89A8E", marginTop: "10px", textAlign: "center" }}>請先選擇日期</p>}
       </div>
 
       {/* STEP 3: 填寫資料 */}
