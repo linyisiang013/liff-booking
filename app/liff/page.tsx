@@ -6,7 +6,7 @@ import liff from "@line/liff";
 const TIMES = ["09:40", "13:00", "16:00", "19:20"];
 
 export default function LiffBookingPage() {
-  // 這裡的 phone 實際上我們拿來存 "卸甲資訊"
+  // formData.phone 用來存 "卸甲資訊"
   const [formData, setFormData] = useState({ name: "", phone: "不需卸甲", date: "", slot_time: "", item: "" });
   const [userId, setUserId] = useState("");
   const [availabilityData, setAvailabilityData] = useState<any>(null); 
@@ -89,14 +89,14 @@ export default function LiffBookingPage() {
     setSubmitting(true);
 
     try {
-      // 送出時，customer_phone 欄位直接帶入 formData.phone (也就是卸甲資訊)
+      // 這裡將「卸甲選擇」存入 customer_phone 欄位
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           line_user_id: userId,
           customer_name: formData.name,
-          customer_phone: formData.phone, // 這裡傳的是 "需卸甲" 或 "不需卸甲"
+          customer_phone: formData.phone, 
           item: formData.item,
           date: formData.date,
           slot_time: formData.slot_time
@@ -168,13 +168,20 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 3 - 介面改為卸甲選擇，但變數仍用 phone 儲存 */}
+      {/* STEP 3 */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 3 | 填寫資料</span></div>
         
-        <input type="text" placeholder="您的姓名 (必填)" style={s.input} value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+        {/* ▼▼▼ 修改處：Placeholder 改為 "您的姓名或稱呼" ▼▼▼ */}
+        <input 
+          type="text" 
+          placeholder="您的姓名或稱呼" 
+          style={s.input} 
+          value={formData.name} 
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
+        />
         
-        {/* 這裡把原本的電話輸入框，換成兩個按鈕 */}
+        {/* 卸甲選項 (後端存入 phone 欄位) */}
         <div style={{ marginTop: "15px", marginBottom: "15px" }}>
           <label style={{ fontSize: "14px", color: "#5a544e", fontWeight: "bold", marginBottom: "8px", display: "block" }}>是否需要卸甲？</label>
           <div style={{ display: "flex", gap: "10px" }}>
