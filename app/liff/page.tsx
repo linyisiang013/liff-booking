@@ -50,7 +50,7 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // --- 日期限制邏輯 (已修改為 15 號) ---
+  // --- 日期限制邏輯 (測試模式：完全開放) ---
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -59,15 +59,16 @@ export default function LiffBookingPage() {
   const minDate = new Date(currentYear, currentMonth - 1, 1);
 
   // 限制 B: 下個月開放時間
-  // ▼▼▼▼▼▼ 修改處：將 17 改為 15 ▼▼▼▼▼▼
-  // 設定為：當月 15 號 20:00 開放
-  const openThreshold = new Date(currentYear, currentMonth, 15, 20, 0, 0);
-  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+  // ▼▼▼▼▼▼ 強制開放 ▼▼▼▼▼▼
+  // 為了讓您現在能按，這裡設為「1號 00:00」
+  // 等您測試完畢，想改回「17號 20:00」時，請將下面的 1 改成 17，0 改成 20
+  const openThreshold = new Date(currentYear, currentMonth, 1, 0, 0, 0); 
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
   // 預設最大只能看「當月」
   let maxDate = new Date(currentYear, currentMonth, 1);
   
-  // 如果現在時間 >= 門檻時間 (15號 20:00)，允許看「下個月」
+  // 判斷：只要現在時間超過 openThreshold，就開放下個月
   if (now >= openThreshold) {
     maxDate = new Date(currentYear, currentMonth + 1, 1);
   }
