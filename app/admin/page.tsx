@@ -1,112 +1,125 @@
 "use client";
 import { useEffect, useState } from "react";
 
-const TIMES = ["09:40", "13:00", "16:00", "19:20"];
-const WEEKS = ["日", "一", "二", "三", "四", "五", "六"];
-
-export default function AdminCalendarPage() {
-  const [viewDate, setViewDate] = useState(new Date());
+export default function AdminBookingPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [status, setStatus] = useState({ booked: [] as any[], closed: [] as string[] });
+  const [availability, setAvailability] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  const fetchData = async () => {
+  // 獲取該日期的預約明細
+  const fetchAdminData = async (date: string) => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/availability?date=${selectedDate}&t=${Date.now()}`);
-      const d = await res.json();
-      // 強制對齊資料
-      setStatus({ 
-        booked: d.bookedDetails || [], 
-        closed: d.closedOnly || [] 
-      });
-    } catch (e) { console.error("抓取失敗", e); }
+      // 加入 t= 時間戳記防止快取
+      const res = await fetch(`/api/availability?date=${date}&t=${Date.now()}`);
+      const data = await res.json();
+      setAvailability(data);
+    } catch (err) {
+      console.error("讀取失敗", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchData(); }, [selectedDate]);
+  useEffect(() => {
+    fetchAdminData(selectedDate);
+  }, [selectedDate]);
 
-  const handleAction = async (type: 'cancel_booking' | 'toggle_closure', slot: string) => {
-    if (!confirm("確定要執行操作嗎？")) return;
-    const res = await fetch("/api/admin/manage", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, date: selectedDate, slot_time: slot })
-    });
-    if (res.ok) fetchData();
+  // 執行取消預約
+  const handleCancel = async (slotTime: string, customerName: string) => {
+    if (!confirm(`確定要取消 ${customerName} 在 ${slotTime} 的預約嗎？`)) return;
+
+    try {
+      const res = await fetch("/api/bookings/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: selectedDate, slot_time: slotTime }),
+      });
+
+      if (res.ok) {
+        alert("已成功取消");
+        fetchAdminData(selectedDate); // 重新整理列表
+      } else {
+        alert("取消失敗");
+      }
+    } catch (err) {
+      alert("系統異常");
+    }
   };
 
   return (
-    <div style={{ backgroundColor: "#f8f5f2", minHeight: "100vh", padding: "20px", fontFamily: "sans-serif" }}>
-      <h2 style={{ textAlign: "center", color: "#8c7e6d", marginBottom: "20px" }}>安指 say_nail 管理員後台系統</h2>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "20px", justifyContent: "center", maxWidth: "1200px", margin: "0 auto" }}>
-        
-        {/* 左側日曆 */}
-        <div style={{ flex: "1 1 400px", backgroundColor: "#fff", padding: "20px", borderRadius: "15px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
-            <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} style={s.navBtn}>上個月</button>
-            <span style={{ fontWeight: "bold" }}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</span>
-            <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} style={s.navBtn}>下個月</button>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center" }}>
-            {WEEKS.map(w => <div key={w} style={{ color: "#a0958a", fontSize: "14px", paddingBottom: "10px" }}>{w}</div>)}
-            {/* 這裡省略 renderDays 邏輯以簡化空間，請保留您原本的 renderDays 代碼 */}
-            {Array.from({ length: new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay() }).map((_, i) => <div key={i} />)}
-            {Array.from({ length: new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate() }).map((_, i) => {
-              const d = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-              return (
-                <div key={i} onClick={() => setSelectedDate(d)} style={{
-                  padding: "12px 0", cursor: "pointer", borderRadius: "10px",
-                  backgroundColor: selectedDate === d ? "#8c7e6d" : "transparent",
-                  color: selectedDate === d ? "#fff" : "#5a544e"
-                }}>{i + 1}</div>
-              );
-            })}
-          </div>
-        </div>
+    <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", fontFamily: "sans-serif", backgroundColor: "#FAF9F6", minHeight: "100vh" }}>
+      <h2 style={{ color: "#8c7e6d", textAlign: "center" }}>安指 say_nail 管理後台</h2>
 
-        {/* 右側管理：顯示預約資訊 */}
-        <div style={{ flex: "1 1 400px", backgroundColor: "#fff", padding: "20px", borderRadius: "15px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
-          <h3 style={{ borderLeft: "4px solid #8c7e6d", paddingLeft: "15px", marginBottom: "20px" }}>{selectedDate} 時段管理</h3>
-          {TIMES.map(t => {
-            // 像排休一樣做字串比對
-            const tStr = String(t);
-            const booking = status.booked.find(b => String(b.slot_time) === tStr);
-            const isClosed = status.closed.includes(tStr);
-            
-            return (
-              <div key={t} style={{ padding: "15px", borderBottom: "1px solid #f5f5f5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: "bold" }}>{t}</div>
-                  {booking ? (
-                    <div style={{ fontSize: "13px", color: "#d9534f", marginTop: "5px", background: "#fff5f5", padding: "8px", borderRadius: "8px" }}>
-                      <strong>👤 預約：{booking.name}</strong><br/>
-                      📞 電話：{booking.phone}<br/>
-                      📝 項目：{booking.item || "未填"}
-                    </div>
-                  ) : isClosed ? (
-                    <div style={{ fontSize: "13px", color: "#f0ad4e", marginTop: "4px" }}>🚫 目前為「手動關閉」</div>
-                  ) : (
-                    <div style={{ fontSize: "13px", color: "#5cb85c", marginTop: "4px" }}>✅ 正常開放中</div>
-                  )}
-                </div>
-                <div>
-                  {booking ? (
-                    <button onClick={() => handleAction('cancel_booking', t)} style={s.btnDanger}>取消預約</button>
-                  ) : (
-                    <button onClick={() => handleAction('toggle_closure', t)} style={isClosed ? s.btnOpen : s.btnClose}>
-                      {isClosed ? "重新開放" : "關閉時段"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* 日期切換 */}
+      <div style={{ marginBottom: "20px", backgroundColor: "#fff", padding: "15px", borderRadius: "10px", boxShadow: "0 2px 5px rgba(0,0,0,0.05)" }}>
+        <label style={{ display: "block", marginBottom: "8px", fontWeight: "bold", color: "#555" }}>檢視預約日期：</label>
+        <input 
+          type="date" 
+          value={selectedDate} 
+          onChange={(e) => setSelectedDate(e.target.value)}
+          style={{ width: "100%", padding: "10px", borderRadius: "5px", border: "1px solid #ddd" }}
+        />
       </div>
+
+      {loading ? <p style={{ textAlign: "center" }}>載入中...</p> : (
+        <div>
+          <h3 style={{ fontSize: "16px", color: "#8c7e6d", borderBottom: "2px solid #8c7e6d", paddingBottom: "5px" }}>
+            {selectedDate} 預約名單
+          </h3>
+          
+          {availability?.bookedDetails?.length > 0 ? (
+            availability.bookedDetails.map((item: any, idx: number) => (
+              <div key={idx} style={s.adminCard}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: "bold", fontSize: "16px" }}>
+                    ⏰ {item.slot_time} 
+                    <span style={{ marginLeft: "10px", color: "#333" }}>{item.name}</span>
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#666", marginTop: "4px" }}>
+                    📞 {item.phone || "未留電話"} | 💅 {item.item || "未填項目"}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => handleCancel(item.slot_time, item.name)}
+                  style={s.cancelBtn}
+                >
+                  取消預約
+                </button>
+              </div>
+            ))
+          ) : (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#aaa" }}>
+              ☕ 該日目前尚無預約
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-const s: any = {
-  navBtn: { border: "1px solid #eee", padding: "6px 15px", borderRadius: "8px", backgroundColor: "#fff", cursor: "pointer" },
-  btnDanger: { backgroundColor: "#ff4d4f", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", cursor: "pointer" },
-  btnClose: { backgroundColor: "#8c7e6d", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", cursor: "pointer" },
-  btnOpen: { backgroundColor: "#5cb85c", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", cursor: "pointer" }
+const s = {
+  adminCard: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    padding: "15px",
+    borderRadius: "12px",
+    marginBottom: "10px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+    borderLeft: "5px solid #8c7e6d"
+  },
+  cancelBtn: {
+    backgroundColor: "#ff4d4f",
+    color: "#fff",
+    border: "none",
+    padding: "8px 15px",
+    borderRadius: "6px",
+    fontSize: "13px",
+    cursor: "pointer",
+    fontWeight: "bold" as any,
+    transition: "0.2s"
+  }
 };
