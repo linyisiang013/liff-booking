@@ -17,20 +17,23 @@ export async function GET(req: Request) {
     supabase.from("closures").select("slot_time").eq("date", date)
   ]);
 
-  // 整理預約明細（給管理員看）
+  // 格式化函數：確保 "09:40:00" 變成 "09:40"
+  const formatTime = (t: any) => t ? String(t).substring(0, 5) : "";
+
+  // 整理預約明細
   const bookedDetails = (bRes.data || []).map(b => ({
-    slot_time: b.slot_time,
+    slot_time: formatTime(b.slot_time),
     name: b.customer_name,
     phone: b.customer_phone,
     item: b.item
   }));
 
-  // 整理純關閉時段（給管理員看）
-  const closedOnly = (cRes.data || []).map(c => String(c.slot_time));
+  // 整理純關閉時段
+  const closedOnly = (cRes.data || []).map(c => formatTime(c.slot_time));
 
-  // 統一禁用名單：包含「已預約」與「管理員手動關閉」
+  // 統一禁用名單 (HH:mm 格式)
   const allDisabled = [
-    ...(bRes.data || []).map(b => String(b.slot_time)),
+    ...(bRes.data || []).map(b => formatTime(b.slot_time)),
     ...closedOnly
   ];
 

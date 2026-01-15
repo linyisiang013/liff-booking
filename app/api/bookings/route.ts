@@ -8,31 +8,31 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { name, phone, date, slot_time, item } = await req.json();
+    // 對接前端傳出的欄位名稱
+    const { line_user_id, customer_name, customer_phone, date, slot_time, item } = await req.json();
 
     const { error: insertError } = await supabase
       .from("bookings")
       .insert([
         { 
-          customer_name: String(name),
-          customer_phone: String(phone || ""),
+          customer_name: String(customer_name || "未填"),
+          customer_phone: String(customer_phone || ""),
           date: String(date),
-          slot_time: String(slot_time),
+          slot_time: String(slot_time), // 傳入 "09:40"，DB 會自動存成 "09:40:00"
           item: String(item || ""),
           status: "confirmed",
-          // 修正點：填入 line_user_id 避免資料庫報錯
-          line_user_id: "FROM_WEB_BOOKING" 
+          line_user_id: String(line_user_id || "FROM_WEB_BOOKING") 
         }
       ]);
 
     if (insertError) {
       console.error("SQL Error:", insertError);
-      return NextResponse.json({ message: `資料庫錯誤: ${insertError.message}` }, { status: 500 });
+      return NextResponse.json({ error: `資料庫錯誤: ${insertError.message}` }, { status: 500 });
     }
 
     return NextResponse.json({ message: "預約成功" }, { status: 200 });
 
   } catch (err: any) {
-    return NextResponse.json({ message: `系統錯誤: ${err.message}` }, { status: 500 });
+    return NextResponse.json({ error: `系統錯誤: ${err.message}` }, { status: 500 });
   }
 }
