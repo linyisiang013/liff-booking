@@ -2,17 +2,18 @@
 import { useEffect, useState } from "react";
 import liff from "@line/liff";
 
+// 預設要檢查的所有時段
 const TIMES = ["09:40", "13:00", "16:00", "19:20"];
 
 export default function LiffBookingPage() {
   const [formData, setFormData] = useState({ name: "", phone: "", date: "", slot_time: "", item: "" });
   const [userId, setUserId] = useState("");
-  const [slots, setSlots] = useState<any[]>([]); // 存放 API 回傳的完整時段狀態
+  const [slots, setSlots] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
 
-  // 1. 初始化 LIFF 並強制登入
+  // 1. 初始化 LIFF
   useEffect(() => {
     const initLiff = async () => {
       try {
@@ -31,22 +32,21 @@ export default function LiffBookingPage() {
     initLiff();
   }, []);
 
-  // 2. 當日期改變時，獲取時段可用性 (對接您舊版的 /api/availability 邏輯)
+  // 2. 當日期改變時，抓取時段狀態
   useEffect(() => {
     const targetDate = formData.date || new Date().toISOString().split('T')[0];
     if (!formData.date) setFormData(prev => ({ ...prev, date: targetDate }));
 
-    // 抓取時段狀態
     fetch(`/api/availability?date=${targetDate}&t=${Date.now()}`)
       .then(res => res.json())
       .then(data => {
-        // 重要：對接舊版 data.slots 格式
+        // 對接 API 回傳的 slots 陣列
         setSlots(data.slots || []); 
       })
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // 日曆計算邏輯 (維持不變)
+  // 日曆邏輯
   const getDaysInMonth = (year: number, month: number) => {
     const date = new Date(year, month, 1);
     const days = [];
@@ -133,14 +133,16 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 2 | 選擇時段 (修正：對應 slots.is_available) */}
+      {/* STEP 2 | 選擇時段 (套用您修改的邏輯) */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 2 | 選擇時段</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           {TIMES.map(t => {
-            // 從 API 回傳的資料中尋找該時段
-            const slotData = slots.find(s => s.slot_time === (t.length === 5 ? t + ":00" : t) || s.slot_time === t);
-            const isAvailable = slotData ? slotData.is_available : true; 
+            // 尋找 API 回傳的時段 (考慮到資料庫可能有 :00 秒數)
+            const slotData = slots.find(s => s.slot_time === t || s.slot_time === t + ":00");
+
+            // 套用您的邏輯：找不到 slotData 或 is_available 為 false 則視為不可用
+            const isAvailable = slotData ? Boolean(slotData.is_available) : false;
             const isSelected = formData.slot_time === t;
 
             return (
@@ -150,7 +152,7 @@ export default function LiffBookingPage() {
                 onClick={() => setFormData({ ...formData, slot_time: t })}
                 style={{
                   ...s.slotBtn,
-                  backgroundColor: !isAvailable ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"),
+                  background: !isAvailable ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"),
                   color: !isAvailable ? "#ccc" : (isSelected ? "#fff" : "#5a544e"),
                   textDecoration: !isAvailable ? "line-through" : "none",
                   border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd",
@@ -191,6 +193,6 @@ const s = {
   weekLabel: { fontSize: "12px", color: "#999", paddingBottom: "10px" },
   dayCell: { padding: "10px 0", cursor: "pointer", borderRadius: "8px", fontSize: "14px" },
   input: { width: "100%", padding: "12px", borderRadius: "10px", border: "1px solid #f0f0f0", boxSizing: "border-box" as any, backgroundColor: "#F9F9F9", fontSize: "14px" },
-  slotBtn: { padding: "12px 0", borderRadius: "10px", fontSize: "14px", fontWeight: "bold" as any },
+  slotBtn: { padding: "12px 0", borderRadius: "10px", fontSize: "14px", fontWeight: "bold" as any, transition: "0.2s" },
   submitBtn: { width: "100%", padding: "16px", color: "#fff", border: "none", borderRadius: "10px", fontSize: "16px", fontWeight: "bold" as any }
 };
