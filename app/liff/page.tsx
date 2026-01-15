@@ -63,7 +63,7 @@ export default function LiffBookingPage() {
   let maxDate = new Date(currentYear, currentMonth, 1);
   
   // 檢查是否超過開放時間
-  const openThreshold = new Date(currentYear, currentMonth, 17, 20, 0, 0);
+  const openThreshold = new Date(currentYear, currentMonth, 15, 20, 0, 0);
   if (now >= openThreshold) {
     // 如果現在時間 >= 17號 20:00，允許看「下個月」
     maxDate = new Date(currentYear, currentMonth + 1, 1);
