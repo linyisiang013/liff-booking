@@ -1,125 +1,54 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-export default function AdminBookingPage() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [availability, setAvailability] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  // 獲取該日期的預約明細
-  const fetchAdminData = async (date: string) => {
-    setLoading(true);
-    try {
-      // 加入 t= 時間戳記防止快取
-      const res = await fetch(`/api/availability?date=${date}&t=${Date.now()}`);
-      const data = await res.json();
-      setAvailability(data);
-    } catch (err) {
-      console.error("讀取失敗", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAdminData(selectedDate);
-  }, [selectedDate]);
-
-  // 執行取消預約
-  const handleCancel = async (slotTime: string, customerName: string) => {
-    if (!confirm(`確定要取消 ${customerName} 在 ${slotTime} 的預約嗎？`)) return;
-
-    try {
-      const res = await fetch("/api/bookings/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selectedDate, slot_time: slotTime }),
-      });
-
-      if (res.ok) {
-        alert("已成功取消");
-        fetchAdminData(selectedDate); // 重新整理列表
-      } else {
-        alert("取消失敗");
-      }
-    } catch (err) {
-      alert("系統異常");
-    }
-  };
+export default function AdminDashboard() {
+  const router = useRouter();
 
   return (
-    <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", fontFamily: "sans-serif", backgroundColor: "#FAF9F6", minHeight: "100vh" }}>
-      <h2 style={{ color: "#8c7e6d", textAlign: "center" }}>安指 say_nail 管理後台</h2>
+    <div style={s.container}>
+      <h2 style={s.title}>安指 say_nail 管理中心</h2>
+      <p style={s.subtitle}>請選擇您要執行的操作</p>
 
-      {/* 日期切換 */}
-      <div style={{ marginBottom: "20px", backgroundColor: "#fff", padding: "15px", borderRadius: "10px", boxShadow: "0 2px 5px rgba(0,0,0,0.05)" }}>
-        <label style={{ display: "block", marginBottom: "8px", fontWeight: "bold", color: "#555" }}>檢視預約日期：</label>
-        <input 
-          type="date" 
-          value={selectedDate} 
-          onChange={(e) => setSelectedDate(e.target.value)}
-          style={{ width: "100%", padding: "10px", borderRadius: "5px", border: "1px solid #ddd" }}
-        />
+      <div style={s.menuGrid}>
+        {/* 跳轉至預約管理 */}
+        <div style={s.menuCard} onClick={() => router.push("/admin/bookings")}>
+          <div style={s.icon}>📋</div>
+          <div style={s.cardTitle}>預約名單管理</div>
+          <div style={s.cardDesc}>查看客戶預約、取消預約、釋出時段</div>
+        </div>
+
+        {/* 跳轉至排休管理 */}
+        <div style={s.menuCard} onClick={() => router.push("/admin/closures")}>
+          <div style={s.icon}>🔒</div>
+          <div style={s.cardTitle}>店家排休設定</div>
+          <div style={s.cardDesc}>手動關閉時段、設定公休日、恢復開放</div>
+        </div>
       </div>
 
-      {loading ? <p style={{ textAlign: "center" }}>載入中...</p> : (
-        <div>
-          <h3 style={{ fontSize: "16px", color: "#8c7e6d", borderBottom: "2px solid #8c7e6d", paddingBottom: "5px" }}>
-            {selectedDate} 預約名單
-          </h3>
-          
-          {availability?.bookedDetails?.length > 0 ? (
-            availability.bookedDetails.map((item: any, idx: number) => (
-              <div key={idx} style={s.adminCard}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: "bold", fontSize: "16px" }}>
-                    ⏰ {item.slot_time} 
-                    <span style={{ marginLeft: "10px", color: "#333" }}>{item.name}</span>
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#666", marginTop: "4px" }}>
-                    📞 {item.phone || "未留電話"} | 💅 {item.item || "未填項目"}
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => handleCancel(item.slot_time, item.name)}
-                  style={s.cancelBtn}
-                >
-                  取消預約
-                </button>
-              </div>
-            ))
-          ) : (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "#aaa" }}>
-              ☕ 該日目前尚無預約
-            </div>
-          )}
-        </div>
-      )}
+      <div style={s.footer}>
+        目前登入：管理員模式
+      </div>
     </div>
   );
 }
 
 const s = {
-  adminCard: {
-    display: "flex",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: "15px",
-    borderRadius: "12px",
-    marginBottom: "10px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-    borderLeft: "5px solid #8c7e6d"
-  },
-  cancelBtn: {
-    backgroundColor: "#ff4d4f",
-    color: "#fff",
-    border: "none",
-    padding: "8px 15px",
-    borderRadius: "6px",
-    fontSize: "13px",
+  container: { padding: "40px 20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" },
+  title: { color: "#8c7e6d", textAlign: "center" as any, marginBottom: "10px" },
+  subtitle: { color: "#999", textAlign: "center" as any, marginBottom: "40px", fontSize: "14px" },
+  menuGrid: { display: "grid", gap: "20px" },
+  menuCard: { 
+    backgroundColor: "#fff", 
+    padding: "25px 20px", 
+    borderRadius: "15px", 
+    boxShadow: "0 4px 15px rgba(0,0,0,0.05)", 
     cursor: "pointer",
-    fontWeight: "bold" as any,
-    transition: "0.2s"
-  }
+    textAlign: "center" as any,
+    transition: "transform 0.2s",
+    border: "1px solid #f0f0f0"
+  },
+  icon: { fontSize: "32px", marginBottom: "10px" },
+  cardTitle: { fontWeight: "bold" as any, color: "#5a544e", fontSize: "18px", marginBottom: "5px" },
+  cardDesc: { color: "#A89A8E", fontSize: "13px" },
+  footer: { marginTop: "50px", textAlign: "center" as any, color: "#ccc", fontSize: "12px" }
 };

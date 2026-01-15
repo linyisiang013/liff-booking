@@ -8,17 +8,23 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { date, slot_time } = await req.json();
-    if (!date || !slot_time) return NextResponse.json({ error: "缺失日期或時段" }, { status: 400 });
+    const { date, slot_time, type } = await req.json();
+    if (!date || !slot_time) return NextResponse.json({ error: "缺失參數" }, { status: 400 });
+
+    // 根據 type 決定操作哪張資料表
+    const table = type === 'closure' ? 'closures' : 'bookings';
+    
+    // 確保時間格式帶秒數以符合 DB 類型
+    const dbTime = slot_time.length === 5 ? `${slot_time}:00` : slot_time;
 
     const { error } = await supabase
-      .from("bookings")
+      .from(table)
       .delete()
       .eq("date", date)
-      .eq("slot_time", slot_time.includes(":") && slot_time.length === 5 ? `${slot_time}:00` : slot_time);
+      .eq("slot_time", dbTime);
 
     if (error) throw error;
-    return NextResponse.json({ message: "取消成功" });
+    return NextResponse.json({ message: "刪除成功" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
