@@ -6,13 +6,13 @@ import liff from "@line/liff";
 const TIMES = ["09:40", "13:00", "16:00", "19:20"];
 
 export default function LiffBookingPage() {
-  const [formData, setFormData] = useState({ name: "", phone: "", date: "", slot_time: "", item: "" });
+  // 這裡的 phone 實際上我們拿來存 "卸甲資訊"
+  const [formData, setFormData] = useState({ name: "", phone: "不需卸甲", date: "", slot_time: "", item: "" });
   const [userId, setUserId] = useState("");
   const [availabilityData, setAvailabilityData] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
-  // 初始化 viewDate 為當月 1 號
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -37,7 +37,7 @@ export default function LiffBookingPage() {
     initLiff();
   }, []);
 
-  // 2. 當日期改變時，抓取時段狀態
+  // 2. 抓取時段
   useEffect(() => {
     const targetDate = formData.date || new Date().toISOString().split('T')[0];
     if (!formData.date) setFormData(prev => ({ ...prev, date: targetDate }));
@@ -50,32 +50,20 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // --- 日期限制邏輯 (正式營運版) ---
-  const now = new Date(); // 抓取使用者當前時間 (台灣時間)
+  // --- 日期限制邏輯 (17號 20:00) ---
+  const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
-
-  // 限制 A: 最早只能看「上個月」
   const minDate = new Date(currentYear, currentMonth - 1, 1);
-
-  // 限制 B: 下個月開放時間
-  // 設定為：當月 17 號 20:00 開放
   const openThreshold = new Date(currentYear, currentMonth, 17, 20, 0, 0);
-
-  // 預設最大只能看「當月」
   let maxDate = new Date(currentYear, currentMonth, 1);
-  
-  // 只有當「現在時間」超過「17號 20:00」時，才開放下個月
   if (now >= openThreshold) {
     maxDate = new Date(currentYear, currentMonth + 1, 1);
   }
-
-  // 判斷按鈕是否該停用
   const isPrevDisabled = viewDate <= minDate;
   const isNextDisabled = viewDate >= maxDate;
   // ---------------------------
 
-  // 日曆計算邏輯
   const getDaysInMonth = (year: number, month: number) => {
     const date = new Date(year, month, 1);
     const days = [];
@@ -97,17 +85,18 @@ export default function LiffBookingPage() {
 
   const handleSubmit = async () => {
     if (!userId) return alert("無法讀取 LINE ID");
-    if (!formData.name || !formData.date || !formData.slot_time) return alert("請填寫姓名、電話並選擇時段");
+    if (!formData.name || !formData.date || !formData.slot_time) return alert("請填寫姓名並選擇時段");
     setSubmitting(true);
 
     try {
+      // 送出時，customer_phone 欄位直接帶入 formData.phone (也就是卸甲資訊)
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           line_user_id: userId,
           customer_name: formData.name,
-          customer_phone: formData.phone,
+          customer_phone: formData.phone, // 這裡傳的是 "需卸甲" 或 "不需卸甲"
           item: formData.item,
           date: formData.date,
           slot_time: formData.slot_time
@@ -118,7 +107,7 @@ export default function LiffBookingPage() {
         if (liff.isInClient()) {
           await liff.sendMessages([{
             type: "text",
-            text: `✅ 預約申請已送出\n----------------\n📅 日期：${formData.date}\n⏰ 時段：${formData.slot_time}\n👤 姓名：${formData.name}\n📞 電話：${formData.phone}\n📝 項目：${formData.item || "未填"}`
+            text: `✅ 預約申請已送出\n----------------\n📅 日期：${formData.date}\n⏰ 時段：${formData.slot_time}\n👤 姓名：${formData.name}\n💅 卸甲：${formData.phone}\n📝 項目：${formData.item || "未填"}`
           }]);
         }
         alert("預約成功！");
@@ -138,27 +127,13 @@ export default function LiffBookingPage() {
     <div style={{ padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" }}>
       <h2 style={{ textAlign: "center", color: "#A89A8E", marginBottom: "30px", fontWeight: "600" }}>安指 say_nail 預約系統</h2>
 
-      {/* STEP 1 | 選擇日期 */}
+      {/* STEP 1 */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 1 | 選擇預約日期</span></div>
         <div style={s.calendarHeader}>
-          <button 
-            disabled={isPrevDisabled}
-            onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} 
-            style={{...s.navBtn, opacity: isPrevDisabled ? 0.3 : 1, cursor: isPrevDisabled ? "not-allowed" : "pointer"}}
-          >
-            上個月
-          </button>
-          
+          <button disabled={isPrevDisabled} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} style={{...s.navBtn, opacity: isPrevDisabled ? 0.3 : 1}}>上個月</button>
           <div style={s.currentMonth}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
-          
-          <button 
-            disabled={isNextDisabled}
-            onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} 
-            style={{...s.navBtn, opacity: isNextDisabled ? 0.3 : 1, cursor: isNextDisabled ? "not-allowed" : "pointer"}}
-          >
-            下個月
-          </button>
+          <button disabled={isNextDisabled} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} style={{...s.navBtn, opacity: isNextDisabled ? 0.3 : 1}}>下個月</button>
         </div>
         <div style={s.calendarGrid}>
           {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekLabel}>{d}</div>)}
@@ -167,13 +142,7 @@ export default function LiffBookingPage() {
             const dateStr = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
             const isSelected = formData.date === dateStr;
             return (
-              <div key={dateStr} onClick={() => handleDateClick(day)}
-                style={{ 
-                  ...s.dayCell, 
-                  backgroundColor: isSelected ? "#8c7e6d" : "transparent", 
-                  color: isSelected ? "#fff" : "#5a544e",
-                  fontWeight: isSelected ? "bold" : "normal"
-                }}>
+              <div key={dateStr} onClick={() => handleDateClick(day)} style={{ ...s.dayCell, backgroundColor: isSelected ? "#8c7e6d" : "transparent", color: isSelected ? "#fff" : "#5a544e", fontWeight: isSelected ? "bold" : "normal" }}>
                 {day.getDate()}
               </div>
             );
@@ -181,7 +150,7 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 2 | 選擇時段 */}
+      {/* STEP 2 */}
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 2 | 選擇時段</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -189,21 +158,9 @@ export default function LiffBookingPage() {
             const disabledList = Array.isArray(availabilityData?.allDisabled) ? availabilityData.allDisabled : [];
             const isAvailable = !disabledList.includes(t);
             const isSelected = formData.slot_time === t;
-
             return (
-              <button
-                key={t}
-                disabled={!isAvailable}
-                onClick={() => setFormData({ ...formData, slot_time: t })}
-                style={{
-                  ...s.slotBtn,
-                  background: !isAvailable ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"),
-                  color: !isAvailable ? "#ccc" : (isSelected ? "#fff" : "#5a544e"),
-                  textDecoration: !isAvailable ? "line-through" : "none",
-                  border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd",
-                  cursor: !isAvailable ? "not-allowed" : "pointer"
-                }}
-              >
+              <button key={t} disabled={!isAvailable} onClick={() => setFormData({ ...formData, slot_time: t })}
+                style={{ ...s.slotBtn, background: !isAvailable ? "#f5f5f5" : (isSelected ? "#8c7e6d" : "#fff"), color: !isAvailable ? "#ccc" : (isSelected ? "#fff" : "#5a544e"), textDecoration: !isAvailable ? "line-through" : "none", border: isSelected ? "1px solid #8c7e6d" : "1px solid #ddd", cursor: !isAvailable ? "not-allowed" : "pointer" }}>
                 {t} {!isAvailable && "(滿)"}
               </button>
             );
@@ -211,12 +168,44 @@ export default function LiffBookingPage() {
         </div>
       </div>
 
-      {/* STEP 3 | 填寫資料 */}
+      {/* STEP 3 - 介面改為卸甲選擇，但變數仍用 phone 儲存 */}
       <div style={s.card}>
-        <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 3 | 填寫聯繫資料</span></div>
+        <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 3 | 填寫資料</span></div>
+        
         <input type="text" placeholder="您的姓名 (必填)" style={s.input} value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-        <input type="tel" placeholder="聯絡電話" style={{ ...s.input, marginTop: "12px" }} value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
-        <input type="text" placeholder="施作項目 (例：單色美甲、卸甲)" style={{ ...s.input, marginTop: "12px" }} value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} />
+        
+        {/* 這裡把原本的電話輸入框，換成兩個按鈕 */}
+        <div style={{ marginTop: "15px", marginBottom: "15px" }}>
+          <label style={{ fontSize: "14px", color: "#5a544e", fontWeight: "bold", marginBottom: "8px", display: "block" }}>是否需要卸甲？</label>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={() => setFormData({ ...formData, phone: "需卸甲" })}
+              style={{
+                flex: 1, padding: "10px", borderRadius: "8px",
+                border: formData.phone === "需卸甲" ? "1.5px solid #8c7e6d" : "1px solid #ddd",
+                backgroundColor: formData.phone === "需卸甲" ? "#fcfaf7" : "#fff",
+                color: formData.phone === "需卸甲" ? "#8c7e6d" : "#555",
+                fontWeight: formData.phone === "需卸甲" ? "bold" : "normal"
+              }}
+            >
+              是 (需卸甲)
+            </button>
+            <button
+              onClick={() => setFormData({ ...formData, phone: "不需卸甲" })}
+              style={{
+                flex: 1, padding: "10px", borderRadius: "8px",
+                border: formData.phone === "不需卸甲" ? "1.5px solid #8c7e6d" : "1px solid #ddd",
+                backgroundColor: formData.phone === "不需卸甲" ? "#fcfaf7" : "#fff",
+                color: formData.phone === "不需卸甲" ? "#8c7e6d" : "#555",
+                fontWeight: formData.phone === "不需卸甲" ? "bold" : "normal"
+              }}
+            >
+              否 (純施作)
+            </button>
+          </div>
+        </div>
+
+        <input type="text" placeholder="施作項目 (例：單色美甲、造型)" style={s.input} value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} />
       </div>
 
       <button onClick={handleSubmit} disabled={submitting || loading} style={{ ...s.submitBtn, backgroundColor: (submitting || loading) ? "#ccc" : "#8c7e6d" }}>
@@ -232,7 +221,7 @@ const s: Record<string, any> = {
   stepLine: { width: "4px", height: "16px", backgroundColor: "#8c7e6d", marginRight: "8px", borderRadius: "2px" },
   stepTitle: { fontSize: "15px", color: "#5a544e", fontWeight: "bold" },
   calendarHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" },
-  navBtn: { padding: "5px 10px", border: "1px solid #eee", borderRadius: "5px", backgroundColor: "#fff", fontSize: "12px" },
+  navBtn: { padding: "5px 10px", border: "1px solid #eee", borderRadius: "5px", backgroundColor: "#fff", fontSize: "12px", cursor: "pointer" },
   currentMonth: { fontWeight: "bold", fontSize: "16px" },
   calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center" },
   weekLabel: { fontSize: "12px", color: "#999", paddingBottom: "10px" },
