@@ -9,17 +9,17 @@ export default function AdminClosures() {
   const [closedSlots, setClosedSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 1. 讀取目前的排休清單 (對接您的 api/availability)
+  // 讀取目前的排休清單
   const load = async (dateStr: string) => {
     setLoading(true);
     try {
       const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
       const result = await res.json();
-      // 確保將 09:40:00 轉為 09:40 以便比對
-      const formattedClosed = (result.closedOnly || []).map((t: string) => t.substring(0, 5));
-      setClosedSlots(formattedClosed);
+      // 將 "09:40:00" 統一轉成 "09:40" 比對
+      const formatted = (result.closedOnly || []).map((t: string) => t.substring(0, 5));
+      setClosedSlots(formatted);
     } catch (err) {
-      console.error("讀取失敗", err);
+      console.error("載入失敗");
     } finally {
       setLoading(false);
     }
@@ -27,53 +27,32 @@ export default function AdminClosures() {
 
   useEffect(() => { load(selectedDate); }, [selectedDate]);
 
-  // 2. 執行「新增排休」(如果您沒有 closures API，這裡通常是整合進 bookings 或專屬 API)
-  // 如果您確定沒有 api/closures/route.ts，請建立該檔案，或告知我您的寫入 API 路徑
-  const handleAddClosure = async (time: string) => {
-    if (!confirm(`確定要關閉 ${selectedDate} ${time} 的時段嗎？`)) return;
-    
+  // 切換排休狀態的核心邏輯
+  const toggleSlot = async (time: string, isClosed: boolean) => {
+    const actionLabel = isClosed ? "恢復開放" : "設定排休";
+    if (!confirm(`確定要對 ${selectedDate} ${time} 進行 ${actionLabel} 嗎？`)) return;
+
     try {
-      // 注意：這裡假設您需要一個 POST API 來寫入 closures 資料表
-      const res = await fetch("/api/closures", { 
-        method: "POST",
+      const method = isClosed ? "DELETE" : "POST";
+      const url = isClosed 
+        ? `/api/admin/closures?date=${selectedDate}&slot_time=${time}`
+        : `/api/admin/closures`;
+
+      const res = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selectedDate, slot_time: time }),
+        body: isClosed ? null : JSON.stringify({ date: selectedDate, slot_time: time }),
       });
 
       if (res.ok) {
-        alert("時段已關閉");
-        load(selectedDate);
+        alert(`${actionLabel}成功！`);
+        load(selectedDate); // 刷新狀態
       } else {
-        alert("設定失敗");
+        const err = await res.json();
+        alert(`操作失敗: ${err.error}`);
       }
     } catch (err) {
-      alert("連線異常");
-    }
-  };
-
-  // 3. 執行「取消排休」(對接您的 api/bookings/delete)
-  const handleOpen = async (time: string) => {
-    if (!confirm(`確定恢復開放 ${time} 時段？`)) return;
-    
-    try {
-      const res = await fetch("/api/bookings/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          date: selectedDate, 
-          slot_time: time, 
-          type: 'closure' // 告訴後端這是要刪除 closures 資料表的資料
-        }),
-      });
-
-      if (res.ok) {
-        alert("時段已恢復開放");
-        load(selectedDate);
-      } else {
-        alert("操作失敗");
-      }
-    } catch (err) {
-      alert("連線異常");
+      alert("網路連線異常");
     }
   };
 
@@ -84,24 +63,21 @@ export default function AdminClosures() {
   for (let i = 1; i <= lastDate; i++) days.push(i);
 
   return (
-    <div style={s.container}>
-      <div style={s.header}>
-        <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 管理中心</button>
-        <h2 style={s.title}>🔒 店家排休管理</h2>
-      </div>
+    <div style={s.page}>
+      <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 管理中心</button>
+      <h2 style={s.title}>🔒 店家排休管理</h2>
 
+      {/* 日曆區塊 */}
       <div style={s.card}>
-        {/* 月份切換 */}
         <div style={s.monthBar}>
           <button style={s.navBtn} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1))}>◀</button>
-          <div style={s.monthText}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
+          <div style={{fontWeight: "bold", fontSize: "18px"}}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
           <button style={s.navBtn} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1))}>▶</button>
         </div>
 
-        {/* 日曆網格 */}
-        <div style={s.calGrid}>
+        <div style={s.calendarGrid}>
           {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekHead}>{d}</div>)}
-          {Array(firstDay).fill(null).map((_, i) => <div key={`e-${i}`}></div>)}
+          {Array(firstDay).fill(null).map((_, i) => <div key={`e-${i}`} />)}
           {days.map(d => {
             const dateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             const isSel = selectedDate === dateStr;
@@ -109,9 +85,9 @@ export default function AdminClosures() {
               <button key={d} onClick={() => setSelectedDate(dateStr)} 
                 style={{ 
                   ...s.dayCell, 
-                  backgroundColor: isSel ? "#A89A8E" : "#fff", 
+                  backgroundColor: isSel ? "#8c7e6d" : "#fff", 
                   color: isSel ? "#fff" : "#333",
-                  border: isSel ? "1.5px solid #A89A8E" : "1px solid #eee"
+                  border: isSel ? "1.5px solid #8c7e6d" : "1.5px solid #eee"
                 }}>
                 {d}
               </button>
@@ -120,24 +96,26 @@ export default function AdminClosures() {
         </div>
       </div>
 
-      <div style={{ marginTop: "20px" }}>
-        <h3 style={s.sectionTitle}>📅 選取日期：{selectedDate}</h3>
+      {/* 時段設定區塊 */}
+      <div style={{ marginTop: "24px" }}>
+        <h3 style={s.sectionTitle}>📅 {selectedDate} 時段設定</h3>
         <div style={s.slotGrid}>
           {TIMES.map(t => {
             const isClosed = closedSlots.includes(t);
             return (
               <button 
                 key={t} 
-                onClick={() => isClosed ? handleOpen(t) : handleAddClosure(t)}
+                onClick={() => toggleSlot(t, isClosed)}
                 style={{
                   ...s.slotBtn,
-                  backgroundColor: isClosed ? "#f3f4f6" : "#fff",
-                  color: isClosed ? "#9ca3af" : "#5a544e",
-                  textDecoration: isClosed ? "line-through" : "none",
-                  border: isClosed ? "1px solid #e5e7eb" : "1px solid #ddd"
+                  backgroundColor: isClosed ? "#fee2e2" : "#f0fdf4",
+                  color: isClosed ? "#b91c1c" : "#166534",
+                  borderColor: isClosed ? "#fca5a5" : "#bbf7d0",
+                  textDecoration: isClosed ? "line-through" : "none"
                 }}
               >
-                {t} {isClosed ? "(已關閉)" : "(開放中)"}
+                <div style={{fontSize: "16px", fontWeight: "bold"}}>{t}</div>
+                <div style={{fontSize: "12px"}}>{isClosed ? "已關閉 (點擊恢復)" : "開放中 (點擊排休)"}</div>
               </button>
             );
           })}
@@ -148,18 +126,16 @@ export default function AdminClosures() {
 }
 
 const s: Record<string, any> = {
-  container: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#f7f4ef", minHeight: "100vh", fontFamily: "sans-serif" },
-  header: { display: "flex", alignItems: "center", marginBottom: "20px" },
-  backBtn: { padding: "6px 12px", borderRadius: "8px", border: "1px solid #ddd", cursor: "pointer", backgroundColor: "#fff", marginRight: "10px", fontSize: "13px" },
-  title: { fontSize: "18px", color: "#A89A8E", margin: 0 },
-  card: { backgroundColor: "#fff", padding: "15px", borderRadius: "16px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" },
-  monthBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" },
-  monthText: { fontWeight: "bold", fontSize: "16px" },
-  navBtn: { border: "none", background: "none", cursor: "pointer", fontSize: "16px", padding: "5px 10px" },
-  calGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "5px" },
+  page: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#fcfaf7", minHeight: "100vh", fontFamily: "sans-serif" },
+  backBtn: { padding: "8px 16px", borderRadius: "8px", border: "1px solid #ddd", cursor: "pointer", backgroundColor: "#fff", marginBottom: "16px" },
+  title: { color: "#8c7e6d", textAlign: "center", marginBottom: "20px" },
+  card: { backgroundColor: "#fff", padding: "20px", borderRadius: "16px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" },
+  monthBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" },
+  navBtn: { border: "1px solid #ddd", background: "#fff", padding: "5px 12px", borderRadius: "6px", cursor: "pointer" },
+  calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "8px" },
   weekHead: { textAlign: "center", fontSize: "12px", color: "#999", paddingBottom: "10px" },
-  dayCell: { padding: "10px 0", cursor: "pointer", borderRadius: "10px", fontSize: "14px", fontWeight: "bold" },
-  sectionTitle: { fontSize: "15px", color: "#111", marginBottom: "12px", fontWeight: "bold" },
-  slotGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" },
-  slotBtn: { padding: "18px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "14px", fontWeight: "bold" }
+  dayCell: { padding: "12px 0", cursor: "pointer", borderRadius: "10px", fontSize: "14px", fontWeight: "bold" },
+  sectionTitle: { fontSize: "16px", color: "#555", marginBottom: "12px", fontWeight: "bold" },
+  slotGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" },
+  slotBtn: { padding: "16px 10px", borderRadius: "12px", border: "2px solid", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }
 };
