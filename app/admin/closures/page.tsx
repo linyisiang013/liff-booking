@@ -9,38 +9,77 @@ export default function AdminClosures() {
   const [closedSlots, setClosedSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 1. 讀取目前的排休清單
   const load = async (dateStr: string) => {
     setLoading(true);
-    const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
-    const result = await res.json();
-    setClosedSlots(result.closedOnly || []);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
+      const result = await res.json();
+      // 確保將 09:40:00 轉為 09:40 以便比對按鈕狀態
+      const formattedClosed = (result.closedOnly || []).map((t: string) => t.substring(0, 5));
+      setClosedSlots(formattedClosed);
+    } catch (err) {
+      console.error("讀取失敗", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(selectedDate); }, [selectedDate]);
 
-  // 新增排休
+  // 2. 執行「新增排休」(關閉時段)
   const handleAddClosure = async (time: string) => {
     if (!confirm(`確定要關閉 ${selectedDate} ${time} 的時段嗎？`)) return;
-    await fetch("/api/closures", { // 假設您的排休 API 路徑是這個
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: selectedDate, slot_time: time }),
-    });
-    load(selectedDate);
+    
+    try {
+      const res = await fetch("/api/closures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          date: selectedDate, 
+          slot_time: time // 這裡傳入 09:40
+        }),
+      });
+
+      if (res.ok) {
+        alert("時段已關閉");
+        load(selectedDate);
+      } else {
+        const err = await res.json();
+        alert("設定失敗: " + (err.error || "未知錯誤"));
+      }
+    } catch (err) {
+      alert("連線異常");
+    }
   };
 
-  // 取消排休 (恢復開放)
+  // 3. 執行「取消排休」(恢復開放)
   const handleOpen = async (time: string) => {
     if (!confirm(`確定恢復開放 ${time} 時段？`)) return;
-    await fetch("/api/bookings/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: selectedDate, slot_time: time, type: 'closure' }),
-    });
-    load(selectedDate);
+    
+    try {
+      const res = await fetch("/api/bookings/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          date: selectedDate, 
+          slot_time: time, 
+          type: 'closure' 
+        }),
+      });
+
+      if (res.ok) {
+        alert("時段已恢復開放");
+        load(selectedDate);
+      } else {
+        alert("操作失敗");
+      }
+    } catch (err) {
+      alert("連線異常");
+    }
   };
 
+  // 日曆產生邏輯
   const days = [];
   const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
   const lastDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
@@ -51,7 +90,6 @@ export default function AdminClosures() {
       <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 回管理中心</button>
       <h2 style={{ ...s.title, color: "#A89A8E" }}>🔒 店家排休管理</h2>
 
-      {/* 日曆組件 */}
       <div style={s.calendarCard}>
         <div style={s.calHeader}>
           <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1))}>◀</button>
@@ -83,7 +121,8 @@ export default function AdminClosures() {
             <button key={t} 
               onClick={() => isClosed ? handleOpen(t) : handleAddClosure(t)}
               style={{
-                padding: "15px", borderRadius: "10px", border: "1px solid #ddd", fontWeight: "bold",
+                padding: "20px 10px", borderRadius: "10px", border: isClosed ? "none" : "1px solid #ddd", 
+                fontWeight: "bold", cursor: "pointer", fontSize: "15px",
                 backgroundColor: isClosed ? "#eee" : "#fff",
                 color: isClosed ? "#ccc" : "#5a544e",
                 textDecoration: isClosed ? "line-through" : "none"
@@ -93,6 +132,7 @@ export default function AdminClosures() {
           );
         })}
       </div>
+      <p style={{ textAlign: "center", fontSize: "12px", color: "#999" }}>點擊上方按鈕可切換「開放」或「排休」狀態</p>
     </div>
   );
 }
