@@ -12,7 +12,7 @@ export default function LiffBookingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
-  // 初始化 viewDate 為當月 1 號，確保比對基準一致
+  // 初始化 viewDate 為當月 1 號
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -50,7 +50,7 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // --- 日期限制邏輯 (新增部分) ---
+  // --- 日期限制邏輯 (已修改為 15 號) ---
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -58,19 +58,21 @@ export default function LiffBookingPage() {
   // 限制 A: 最早只能看「上個月」
   const minDate = new Date(currentYear, currentMonth - 1, 1);
 
-  // 限制 B: 下個月開放時間為「當月 17 號 20:00」
+  // 限制 B: 下個月開放時間
+  // ▼▼▼▼▼▼ 修改處：將 17 改為 15 ▼▼▼▼▼▼
+  // 設定為：當月 15 號 20:00 開放
+  const openThreshold = new Date(currentYear, currentMonth, 15, 20, 0, 0);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
   // 預設最大只能看「當月」
   let maxDate = new Date(currentYear, currentMonth, 1);
   
-  // 檢查是否超過開放時間
-  const openThreshold = new Date(currentYear, currentMonth, 15, 20, 0, 0);
+  // 如果現在時間 >= 門檻時間 (15號 20:00)，允許看「下個月」
   if (now >= openThreshold) {
-    // 如果現在時間 >= 17號 20:00，允許看「下個月」
     maxDate = new Date(currentYear, currentMonth + 1, 1);
   }
 
   // 判斷按鈕是否該停用
-  // 注意: viewDate 已經在 state 初始化時設為該月 1 號
   const isPrevDisabled = viewDate <= minDate;
   const isNextDisabled = viewDate >= maxDate;
   // ---------------------------
@@ -187,7 +189,6 @@ export default function LiffBookingPage() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           {TIMES.map(t => {
             const disabledList = Array.isArray(availabilityData?.allDisabled) ? availabilityData.allDisabled : [];
-            // 這裡自動處理格式比對：檢查 API 回傳的列表中是否包含該時段
             const isAvailable = !disabledList.includes(t);
             const isSelected = formData.slot_time === t;
 
