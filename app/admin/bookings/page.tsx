@@ -1,208 +1,135 @@
 "use client";
 import { useEffect, useState } from "react";
 
-export default function AdminBookingsPage() {
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function AdminBookings() {
+  // --- 原本的狀態 ---
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [viewDate, setViewDate] = useState(new Date());
+  const [data, setData] = useState<any[]>([]); // 這是「單日」的資料
+  const [loading, setLoading] = useState(false);
 
-  // 初始化：載入所有預約
+  // --- 新增：存放「所有預約」的狀態 (用於底部清單) ---
+  const [allBookings, setAllBookings] = useState<any[]>([]);
+
+  // 1. 原本的載入單日邏輯 (不動)
+  const load = async (dateStr: string) => {
+    setLoading(true);
+    const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
+    const result = await res.json();
+    setData(result.bookedDetails || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(selectedDate); }, [selectedDate]);
+
+  // 2. 新增：載入「所有預約」邏輯 (只在頁面載入時執行一次)
   useEffect(() => {
-    fetchBookings();
+    const fetchAll = async () => {
+      try {
+        // 假設後端 /api/bookings 可以抓全部資料
+        const res = await fetch("/api/bookings?all=true");
+        if (res.ok) {
+          let list = await res.json();
+          // 如果回傳格式是 { data: [...] } 則取 data
+          if (!Array.isArray(list) && list.data) list = list.data;
+          
+          if (Array.isArray(list)) {
+            // 排序：由早到晚
+            list.sort((a: any, b: any) => {
+              const t1 = new Date(`${a.date}T${a.slot_time}`).getTime();
+              const t2 = new Date(`${b.date}T${b.slot_time}`).getTime();
+              return t1 - t2;
+            });
+            setAllBookings(list);
+          }
+        }
+      } catch (e) {
+        console.error("無法載入所有預約清單", e);
+      }
+    };
+    fetchAll();
   }, []);
 
-  const fetchBookings = async () => {
-    try {
-      // 嘗試抓取所有預約
-      // 注意：這裡假設您的 API 在沒有參數時會回傳全部，或者支援 ?all=true
-      // 如果您的 API 預設只回傳當天，這裡可能需要您去調整後端 (api/bookings/route.ts)
-      const res = await fetch("/api/bookings?all=true", { cache: "no-store" });
-      
-      if (res.ok) {
-        let data = await res.json();
-        
-        // 相容性檢查：有些 API 會回傳 { data: [...] }，有些直接回傳 [...]
-        if (!Array.isArray(data) && data.data) {
-          data = data.data;
-        }
-
-        if (Array.isArray(data)) {
-          // 排序：由舊到新 (日期小的在上面)
-          const sorted = data.sort((a: any, b: any) => {
-            const t1 = new Date(`${a.date}T${a.slot_time}`).getTime();
-            const t2 = new Date(`${b.date}T${b.slot_time}`).getTime();
-            return t1 - t2;
-          });
-          setBookings(sorted);
-        } else {
-          console.error("API 回傳格式不是陣列:", data);
-          setBookings([]);
-        }
-      }
-    } catch (e) {
-      console.error("無法載入預約", e);
-    } finally {
-      setLoading(false);
-    }
+  // 3. 原本的取消邏輯 (不動)
+  const handleCancel = async (time: string, name: string) => {
+    if (!confirm(`確定取消 ${name} 的預約？`)) return;
+    await fetch("/api/bookings/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: selectedDate, slot_time: time, type: 'booking' }),
+    });
+    load(selectedDate); // 重刷單日
+    // 這裡可以選擇是否要重刷底部清單，或是重新整理頁面
   };
 
-  const handleCancel = async (id: number) => {
-    if (!confirm("確定要取消此預約嗎？")) return;
-    try {
-      const res = await fetch(`/api/bookings?id=${id}`, { method: "DELETE" });
-      if (res.ok) {
-        alert("已取消");
-        fetchBookings(); // 重新整理
-      } else {
-        alert("取消失敗");
-      }
-    } catch (e) {
-      alert("網路錯誤");
-    }
-  };
-
-  // --- 日曆邏輯 (修正版) ---
-  const getCalendarCells = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    
-    const cells = [];
-    
-    // 1. 補前面的空白 (星期日=0, 星期一=1...)
-    // 為了防止錯位，這裡塞入 null，渲染時會給它固定大小
-    for (let i = 0; i < firstDay.getDay(); i++) {
-      cells.push(null);
-    }
-    
-    // 2. 塞入當月日期
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      cells.push(new Date(year, month, i));
-    }
-
-    return cells;
-  };
-
-  const calendarCells = getCalendarCells(selectedDate);
-  const dateStr = selectedDate.toISOString().split('T')[0];
-  const selectedDayBookings = bookings.filter(b => b.date === dateStr);
+  // 原本的日曆計算邏輯 (不動)
+  const days = [];
+  const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+  const lastDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+  for (let i = 1; i <= lastDate; i++) days.push(i);
 
   return (
-    <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", fontFamily: "sans-serif", color: "#5a544e", paddingBottom: "100px" }}>
-      
-      {/* 頂部導航 */}
-      <div style={{ marginBottom: "20px" }}>
-        <button style={s.backBtn} onClick={() => window.location.href = "/admin"}>
-          ⬅ 回管理中心
-        </button>
-      </div>
+    <div style={s.container}>
+      <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 回管理中心</button>
+      <h2 style={s.title}>📋 客戶預約清單</h2>
 
-      <h2 style={{ textAlign: "center", marginBottom: "20px", fontWeight: "bold" }}>📋 客戶預約清單</h2>
-
-      {/* --- 區塊 1：日曆 --- */}
-      <div style={s.card}>
-        <div style={s.calendarHeader}>
-          <button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1))} style={s.navBtn}>◀</button>
-          <span style={{ fontWeight: "bold", fontSize: "18px" }}>{selectedDate.getFullYear()}年 {selectedDate.getMonth() + 1}月</span>
-          <button onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1))} style={s.navBtn}>▶</button>
+      {/* --- 上半部：原本的日曆與單日明細 (完全保留) --- */}
+      <div style={s.calendarCard}>
+        <div style={s.calHeader}>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1))}>◀</button>
+          <span>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</span>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1))}>▶</button>
         </div>
-        
-        {/* 日曆網格：確保每一格大小一致 */}
-        <div style={s.calendarGrid}>
-          {["日", "一", "二", "三", "四", "五", "六"].map(d => (
-            <div key={d} style={s.weekLabel}>{d}</div>
-          ))}
-          
-          {calendarCells.map((day, idx) => {
-            // 處理空白格
-            if (!day) {
-              return <div key={`empty-${idx}`} style={s.emptyCell}></div>;
-            }
-
-            const dStr = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
-            const isSelected = dStr === dateStr;
-            const hasBooking = bookings.some(b => b.date === dStr);
-
+        <div style={s.calGrid}>
+          {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekHead}>{d}</div>)}
+          {Array(firstDay).fill(null).map((_, i) => <div key={i}></div>)}
+          {days.map(d => {
+            const dateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const isSel = selectedDate === dateStr;
             return (
-              <div 
-                key={dStr} 
-                onClick={() => setSelectedDate(day)}
-                style={{
-                  ...s.dayCell,
-                  backgroundColor: isSelected ? "#8c7e6d" : (hasBooking ? "#fdfbf7" : "transparent"),
-                  color: isSelected ? "#fff" : (hasBooking ? "#d97706" : "#333"),
-                  fontWeight: (isSelected || hasBooking) ? "bold" : "normal",
-                  border: hasBooking && !isSelected ? "1px solid #eee" : "1px solid transparent",
-                  boxShadow: isSelected ? "0 2px 5px rgba(0,0,0,0.2)" : "none"
-                }}
-              >
-                {day.getDate()}
+              <div key={d} onClick={() => setSelectedDate(dateStr)} 
+                style={{ ...s.dayCell, backgroundColor: isSel ? "#8c7e6d" : "transparent", color: isSel ? "#fff" : "#333" }}>
+                {d}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* --- 區塊 2：單日明細 --- */}
-      <div style={{ margin: "25px 0" }}>
-        <h3 style={{ fontSize: "16px", borderBottom: "2px solid #8c7e6d", paddingBottom: "8px", marginBottom: "15px" }}>
-          {dateStr} 預約明細
-        </h3>
-        
-        {selectedDayBookings.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#ccc", padding: "20px", background: "#f9f9f9", borderRadius: "8px" }}>今日無預約</div>
-        ) : (
-          selectedDayBookings.map(b => (
-            <div key={b.id} style={s.bookingCard}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: "16px", fontWeight: "bold", color: "#333" }}>
-                  ⏰ {b.slot_time.substring(0, 5)} | {b.customer_name}
-                </div>
-                <button onClick={() => handleCancel(b.id)} style={s.cancelBtn}>取消</button>
-              </div>
-              <div style={{ marginTop: "8px", color: "#666", fontSize: "14px" }}>
-                <div>📞 卸甲：{b.customer_phone}</div>
-                <div>💅 項目：{b.item}</div>
-              </div>
+      <h3 style={s.subTitle}>{selectedDate} 預約明細</h3>
+      {loading ? <p>載入中...</p> : (
+        data.length > 0 ? data.map((item, i) => (
+          <div key={i} style={s.itemCard}>
+            <div style={{ flex: 1 }}>
+              <div style={s.bold}>⏰ {item.slot_time} | {item.name}</div>
+              <div style={s.small}>📞 {item.phone} | 💅 {item.item}</div>
             </div>
-          ))
-        )}
-      </div>
+            <button onClick={() => handleCancel(item.slot_time, item.name)} style={s.delBtn}>取消預約</button>
+          </div>
+        )) : <p style={s.none}>今日無預約</p>
+      )}
 
-      {/* --- 區塊 3：所有預約列表 (滾輪) --- */}
-      <div style={{ marginTop: "30px" }}>
-        <h3 style={{ fontSize: "16px", backgroundColor: "#eee", padding: "12px", borderRadius: "8px 8px 0 0", marginBottom: "0", border: "1px solid #ddd" }}>
-          📅 未來預約總覽
+      {/* --- 下半部：新增的「預約總覽」滾輪清單 --- */}
+      <div style={{ marginTop: "40px", borderTop: "2px solid #eee", paddingTop: "20px" }}>
+        <h3 style={{ fontSize: "16px", color: "#5a544e", fontWeight: "bold", marginBottom: "10px" }}>
+          📅 未來預約總覽 (由近到遠)
         </h3>
         
         <div style={s.scrollContainer}>
-          {loading ? (
-            <div style={{ padding: "20px", textAlign: "center" }}>載入中...</div>
-          ) : bookings.length === 0 ? (
-            <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>
-              目前沒有任何預約紀錄<br/>
-              <small>(若確定有資料，請檢查 API 回傳格式)</small>
-            </div>
+          {allBookings.length === 0 ? (
+            <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>尚無資料或載入中...</div>
           ) : (
-            bookings.map((b) => (
-              <div key={`list-${b.id}`} style={s.listCard}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: "18px", fontWeight: "bold", color: "#5a544e" }}>
-                    {b.customer_name}
-                  </div>
-                  <div style={{ fontSize: "14px", color: "#888", fontWeight: "bold" }}>
-                    {b.date}
-                  </div>
+            allBookings.map((b, idx) => (
+              <div key={idx} style={s.listCard}>
+                <div style={{ fontSize: "16px", fontWeight: "bold", color: "#5a544e" }}>
+                  {b.customer_name || b.name} 
                 </div>
-                
-                <div style={{ fontSize: "14px", color: "#d97706", margin: "5px 0", fontWeight: "500" }}>
-                  ⏰ {b.slot_time.substring(0, 5)} 
-                  <span style={{ marginLeft: "10px", color: "#333" }}>{b.item || "無項目"}</span>
+                <div style={{ fontSize: "14px", color: "#d97706", fontWeight: "bold", margin: "4px 0" }}>
+                  {b.date} &nbsp; {b.slot_time}
                 </div>
-                
-                <div style={{ fontSize: "13px", color: "#999" }}>
-                  卸甲: {b.customer_phone}
+                <div style={{ fontSize: "13px", color: "#666" }}>
+                  項目：{b.item || "未填"} <br/>
+                  備註/卸甲：{b.customer_phone || b.phone}
                 </div>
               </div>
             ))
@@ -214,45 +141,37 @@ export default function AdminBookingsPage() {
   );
 }
 
-const s: Record<string, any> = {
-  backBtn: { padding: "8px 15px", borderRadius: "5px", border: "1px solid #ddd", background: "#fff", cursor: "pointer", fontSize: "14px" },
-  card: { backgroundColor: "#fff", padding: "20px", borderRadius: "15px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" },
-  
-  calendarHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" },
-  navBtn: { border: "none", background: "transparent", fontSize: "20px", cursor: "pointer", padding: "0 15px", color: "#555" },
-  
-  // 修正網格：使用固定比例，避免被壓縮
-  calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "5px", textAlign: "center" },
-  weekLabel: { fontSize: "13px", color: "#999", paddingBottom: "10px" },
-  
-  // 核心修正：給定高度與寬度，並設為 Flex 置中，確保點擊範圍準確
-  dayCell: { 
-    aspectRatio: "1/1", 
-    display: "flex", alignItems: "center", justifyContent: "center", 
-    borderRadius: "8px", cursor: "pointer", fontSize: "14px", 
-    userSelect: "none" // 防止連點選取文字
-  },
-  // 核心修正：空白格也要佔位，否則網格會亂掉
-  emptyCell: { aspectRatio: "1/1", visibility: "hidden" },
+// 樣式表 (保留您的樣式，並在最後新增 scrollContainer 與 listCard)
+const s: any = {
+  container: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" },
+  backBtn: { padding: "5px 10px", borderRadius: "5px", border: "1px solid #ddd", cursor: "pointer", backgroundColor: "#fff", marginBottom: "15px" },
+  title: { color: "#8c7e6d", textAlign: "center", marginBottom: "20px" },
+  calendarCard: { backgroundColor: "#fff", padding: "15px", borderRadius: "15px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", marginBottom: "20px" },
+  calHeader: { display: "flex", justifyContent: "space-between", marginBottom: "15px", fontWeight: "bold" },
+  calGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center" },
+  weekHead: { fontSize: "12px", color: "#999", marginBottom: "10px" },
+  dayCell: { padding: "10px 0", cursor: "pointer", borderRadius: "8px", fontSize: "14px" },
+  subTitle: { fontSize: "16px", color: "#8c7e6d", borderBottom: "2px solid #8c7e6d", paddingBottom: "5px", marginBottom: "15px" },
+  itemCard: { display: "flex", padding: "15px", backgroundColor: "#fff", marginBottom: "10px", borderRadius: "10px", borderLeft: "5px solid #8c7e6d", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" },
+  bold: { fontWeight: "bold" },
+  small: { fontSize: "12px", color: "#666" },
+  delBtn: { backgroundColor: "#ff4d4f", color: "#fff", border: "none", padding: "8px", borderRadius: "5px", cursor: "pointer" },
+  none: { textAlign: "center", color: "#ccc", marginTop: "20px" },
 
-  bookingCard: { backgroundColor: "#FFF8F0", padding: "15px", borderRadius: "10px", marginBottom: "10px", border: "1px solid #F5E6D3" },
-  cancelBtn: { backgroundColor: "#ff4d4f", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" },
-  
+  // --- 新增樣式 ---
   scrollContainer: {
-    height: "400px",       // 固定高度
-    overflowY: "auto",     // 允許滾動
+    height: "350px",       // 這裡控制高度
+    overflowY: "auto",     // 這裡產生滾輪
     backgroundColor: "#fff",
     border: "1px solid #ddd",
-    borderTop: "none",
-    borderRadius: "0 0 8px 8px",
-    padding: "15px"
+    borderRadius: "10px",
+    padding: "10px"
   },
   listCard: {
     backgroundColor: "#F9F9F9",
-    padding: "15px",
+    padding: "12px",
     borderRadius: "8px",
-    marginBottom: "12px",
-    borderLeft: "4px solid #8c7e6d",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+    marginBottom: "10px",
+    borderLeft: "4px solid #ccc"
   }
 };
