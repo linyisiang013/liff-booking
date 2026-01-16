@@ -1,17 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
 
+const TIMES = ["09:40", "13:00", "16:00", "19:20"];
+
 export default function AdminBookings() {
-  // --- 原本的狀態 ---
+  // --- 原本的狀態 (保持不動) ---
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewDate, setViewDate] = useState(new Date());
-  const [data, setData] = useState<any[]>([]); // 這是「單日」的資料
+  const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // --- 新增：存放「所有預約」的狀態 (用於底部清單) ---
+  // --- 新增：存放所有預約資料的狀態 ---
   const [allBookings, setAllBookings] = useState<any[]>([]);
 
-  // 1. 原本的載入單日邏輯 (不動)
+  // 1. 原本的：載入單日資料
   const load = async (dateStr: string) => {
     setLoading(true);
     const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
@@ -22,19 +24,19 @@ export default function AdminBookings() {
 
   useEffect(() => { load(selectedDate); }, [selectedDate]);
 
-  // 2. 新增：載入「所有預約」邏輯 (只在頁面載入時執行一次)
+  // 2. 新增：載入所有預約 (只執行一次)
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        // 假設後端 /api/bookings 可以抓全部資料
+        // 呼叫 API 抓取全部資料
         const res = await fetch("/api/bookings?all=true");
         if (res.ok) {
           let list = await res.json();
-          // 如果回傳格式是 { data: [...] } 則取 data
+          // 若回傳結構是 { data: [...] } 則取 data
           if (!Array.isArray(list) && list.data) list = list.data;
           
           if (Array.isArray(list)) {
-            // 排序：由早到晚
+            // 排序：由近到遠 (日期小的在上面)
             list.sort((a: any, b: any) => {
               const t1 = new Date(`${a.date}T${a.slot_time}`).getTime();
               const t2 = new Date(`${b.date}T${b.slot_time}`).getTime();
@@ -44,13 +46,13 @@ export default function AdminBookings() {
           }
         }
       } catch (e) {
-        console.error("無法載入所有預約清單", e);
+        console.error("無法載入所有預約", e);
       }
     };
     fetchAll();
-  }, []);
+  }, [loading]); // 當 loading 變化(例如刪除後)也重新抓取一次
 
-  // 3. 原本的取消邏輯 (不動)
+  // 3. 原本的：取消預約
   const handleCancel = async (time: string, name: string) => {
     if (!confirm(`確定取消 ${name} 的預約？`)) return;
     await fetch("/api/bookings/delete", {
@@ -59,10 +61,10 @@ export default function AdminBookings() {
       body: JSON.stringify({ date: selectedDate, slot_time: time, type: 'booking' }),
     });
     load(selectedDate); // 重刷單日
-    // 這裡可以選擇是否要重刷底部清單，或是重新整理頁面
+    setLoading(true);   // 觸發重刷底部列表
   };
 
-  // 原本的日曆計算邏輯 (不動)
+  // 原本的日曆計算 (保持不動)
   const days = [];
   const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
   const lastDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
@@ -73,7 +75,7 @@ export default function AdminBookings() {
       <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 回管理中心</button>
       <h2 style={s.title}>📋 客戶預約清單</h2>
 
-      {/* --- 上半部：原本的日曆與單日明細 (完全保留) --- */}
+      {/* --- 上半部：原本的日曆 (保持不動) --- */}
       <div style={s.calendarCard}>
         <div style={s.calHeader}>
           <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1))}>◀</button>
@@ -109,7 +111,7 @@ export default function AdminBookings() {
         )) : <p style={s.none}>今日無預約</p>
       )}
 
-      {/* --- 下半部：新增的「預約總覽」滾輪清單 --- */}
+      {/* --- 下半部：新增的「未來預約總覽」滾輪清單 --- */}
       <div style={{ marginTop: "40px", borderTop: "2px solid #eee", paddingTop: "20px" }}>
         <h3 style={{ fontSize: "16px", color: "#5a544e", fontWeight: "bold", marginBottom: "10px" }}>
           📅 未來預約總覽 (由近到遠)
@@ -121,15 +123,24 @@ export default function AdminBookings() {
           ) : (
             allBookings.map((b, idx) => (
               <div key={idx} style={s.listCard}>
-                <div style={{ fontSize: "16px", fontWeight: "bold", color: "#5a544e" }}>
-                  {b.customer_name || b.name} 
+                {/* 1. 姓名 */}
+                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#5a544e", marginBottom: "5px" }}>
+                  {b.customer_name || b.name}
                 </div>
-                <div style={{ fontSize: "14px", color: "#d97706", fontWeight: "bold", margin: "4px 0" }}>
-                  {b.date} &nbsp; {b.slot_time}
+                
+                {/* 2. 日期與時間 */}
+                <div style={{ fontSize: "14px", color: "#d97706", fontWeight: "bold", marginBottom: "5px" }}>
+                  {b.date} &nbsp; {b.slot_time.substring(0, 5)}
                 </div>
-                <div style={{ fontSize: "13px", color: "#666" }}>
-                  項目：{b.item || "未填"} <br/>
-                  備註/卸甲：{b.customer_phone || b.phone}
+                
+                {/* 3. 項目 */}
+                <div style={{ fontSize: "15px", color: "#333", marginBottom: "5px" }}>
+                  {b.item || "無填寫項目"}
+                </div>
+                
+                {/* 4. 卸甲/電話 (顯示灰色小字) */}
+                <div style={{ fontSize: "13px", color: "#888" }}>
+                  備註/卸甲：{b.customer_phone || b.phone || "無"}
                 </div>
               </div>
             ))
@@ -141,7 +152,7 @@ export default function AdminBookings() {
   );
 }
 
-// 樣式表 (保留您的樣式，並在最後新增 scrollContainer 與 listCard)
+// 樣式表 (保留原本樣式，新增 scrollContainer 與 listCard)
 const s: any = {
   container: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" },
   backBtn: { padding: "5px 10px", borderRadius: "5px", border: "1px solid #ddd", cursor: "pointer", backgroundColor: "#fff", marginBottom: "15px" },
@@ -160,18 +171,19 @@ const s: any = {
 
   // --- 新增樣式 ---
   scrollContainer: {
-    height: "350px",       // 這裡控制高度
-    overflowY: "auto",     // 這裡產生滾輪
+    maxHeight: "400px",    // 設定固定高度
+    overflowY: "auto",     // 超出時顯示滾輪
     backgroundColor: "#fff",
     border: "1px solid #ddd",
     borderRadius: "10px",
-    padding: "10px"
+    padding: "15px"
   },
   listCard: {
-    backgroundColor: "#F9F9F9",
-    padding: "12px",
+    backgroundColor: "#F5F5F5", // 淺灰底色
+    padding: "15px",
     borderRadius: "8px",
-    marginBottom: "10px",
-    borderLeft: "4px solid #ccc"
+    marginBottom: "12px",
+    borderLeft: "5px solid #8c7e6d", // 左邊加一條深色增加識別度
+    boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
   }
 };
