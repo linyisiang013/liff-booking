@@ -1,62 +1,45 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { open } from "sqlite";
-import sqlite3 from "sqlite3";
 
-// 資料庫連線 helper (保留您原本的設定)
-async function openDb() {
-  return open({
-    filename: "./mydb.sqlite", // 請確認您的資料庫檔名
-    driver: sqlite3.Database,
-  });
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
   const date = searchParams.get("date");
-  const mode = searchParams.get("mode"); // 判斷是否要抓全部
+  if (!date) return NextResponse.json({ allDisabled: [], bookedDetails: [], closedOnly: [] });
 
-  const db = await openDb();
+  // 同時抓取預約表與關閉表
+  const [bRes, cRes] = await Promise.all([
+    supabase.from("bookings").select("slot_time, customer_name, customer_phone, item").eq("date", date),
+    supabase.from("closures").select("slot_time").eq("date", date)
+  ]);
 
-  // --- 新增這段：如果 mode 是 'all'，就回傳所有未來預約 ---
-  if (mode === 'all') {
-    // 抓取今天以後的預約，並依照時間排序
-    const today = new Date().toISOString().split('T')[0];
-    const allBookings = await db.all(
-      `SELECT * FROM bookings 
-       WHERE booking_date >= ? 
-       ORDER BY booking_date ASC, slot_time ASC`,
-      [today]
-    );
-    
-    // 為了配合前端，我們統一回傳格式
-    return NextResponse.json({ bookedDetails: allBookings.map(b => ({
-      name: b.customer_name,
-      phone: b.customer_phone,
-      item: b.item,
-      slot_time: b.slot_time,
-      date: b.booking_date
-    }))});
-  }
-  // ---------------------------------------------------
+  // 格式化函數：確保 "09:40:00" 變成 "09:40"
+  const formatTime = (t: any) => t ? String(t).substring(0, 5) : "";
 
-  // --- 原本的邏輯 (查詢單日) ---
-  if (!date) {
-    return NextResponse.json({ error: "Date is required" }, { status: 400 });
-  }
-
-  // 查詢該日期的預約
-  const bookings = await db.all(
-    "SELECT * FROM bookings WHERE booking_date = ?",
-    [date]
-  );
-
-  // 整理回傳資料
-  const bookedDetails = bookings.map((b) => ({
+  // 整理預約明細
+  const bookedDetails = (bRes.data || []).map(b => ({
+    slot_time: formatTime(b.slot_time),
     name: b.customer_name,
     phone: b.customer_phone,
-    item: b.item,
-    slot_time: b.slot_time,
+    item: b.item
   }));
 
-  return NextResponse.json({ bookedDetails });
+  // 整理純關閉時段
+  const closedOnly = (cRes.data || []).map(c => formatTime(c.slot_time));
+
+  // 統一禁用名單 (HH:mm 格式)
+  const allDisabled = [
+    ...(bRes.data || []).map(b => formatTime(b.slot_time)),
+    ...closedOnly
+  ];
+
+  return NextResponse.json({ 
+    bookedDetails, 
+    closedOnly, 
+    allDisabled 
+  });
 }
