@@ -6,6 +6,7 @@ import liff from "@line/liff";
 const TIMES = ["09:40", "13:00", "16:00", "19:20"];
 
 export default function LiffBookingPage() {
+  // formData.phone 用來存 "卸甲資訊"
   const [formData, setFormData] = useState({ name: "", phone: "不需卸甲", date: "", slot_time: "", item: "" });
   const [userId, setUserId] = useState("");
   const [availabilityData, setAvailabilityData] = useState<any>(null); 
@@ -17,6 +18,7 @@ export default function LiffBookingPage() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
 
+  // 1. 初始化 LIFF
   useEffect(() => {
     const initLiff = async () => {
       try {
@@ -35,6 +37,7 @@ export default function LiffBookingPage() {
     initLiff();
   }, []);
 
+  // 2. 抓取時段
   useEffect(() => {
     const targetDate = formData.date || new Date().toISOString().split('T')[0];
     if (!formData.date) setFormData(prev => ({ ...prev, date: targetDate }));
@@ -47,7 +50,7 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // --- 日期限制邏輯 (精確設定開啟時間) ---
+  // --- 日期限制邏輯 (緊急開啟修正) ---
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -55,26 +58,20 @@ export default function LiffBookingPage() {
   // 限制 A: 最早只能看「上個月」
   const minDate = new Date(currentYear, currentMonth - 1, 1);
 
-  // 限制 B: 設定開放時間為「本月 17號 20:25:00」
-  // ▼▼▼▼▼▼ 修改處 ▼▼▼▼▼▼
-  const openThreshold = new Date(currentYear, currentMonth, 17, 20, 25, 0);
-  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+  // 限制 B: 下個月開放時間
+  // ▼▼▼▼▼▼ 修改處：強制設定為 1 號開放，確保二月立刻能約 ▼▼▼▼▼▼
+  const openThreshold = new Date(currentYear, currentMonth, 1, 0, 0, 0);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-  // 預設最大日期只能看到「本月」(下個月 1 號這天是不包含的邊界)
-  let maxDate = new Date(currentYear, currentMonth + 1, 1);
+  let maxDate = new Date(currentYear, currentMonth, 1);
   
-  // 如果現在時間已經超過 20:25，就開放到「下個月」(再往下推一個月)
+  // 因為現在一定大於 1 號，所以這裡會執行，開啟下個月
   if (now >= openThreshold) {
-    maxDate = new Date(currentYear, currentMonth + 2, 1);
+    maxDate = new Date(currentYear, currentMonth + 1, 1);
   }
   
   const isPrevDisabled = viewDate <= minDate;
-  
-  // 判斷下一頁是否被鎖住
-  // 如果 viewDate 是 1月，maxDate 是 2月1號，這裡 1月 < 2月，所以 false (按鈕可用)
-  // 如果 viewDate 是 2月，maxDate 是 2月1號，這裡 2月 >= 2月，所以 true (按鈕鎖住)
-  const nextMonthView = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
-  const isNextDisabled = nextMonthView >= maxDate;
+  const isNextDisabled = viewDate >= maxDate;
   // ---------------------------
 
   const getDaysInMonth = (year: number, month: number) => {
@@ -145,8 +142,6 @@ export default function LiffBookingPage() {
         <div style={s.calendarHeader}>
           <button disabled={isPrevDisabled} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} style={{...s.navBtn, opacity: isPrevDisabled ? 0.3 : 1}}>上個月</button>
           <div style={s.currentMonth}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
-          
-          {/* 下個月按鈕：若時間未到，此按鈕會變半透明且無法點擊 */}
           <button disabled={isNextDisabled} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} style={{...s.navBtn, opacity: isNextDisabled ? 0.3 : 1}}>下個月</button>
         </div>
         <div style={s.calendarGrid}>
@@ -194,6 +189,7 @@ export default function LiffBookingPage() {
           onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
         />
         
+        {/* 卸甲選項 */}
         <div style={{ marginTop: "15px", marginBottom: "15px" }}>
           <label style={{ fontSize: "14px", color: "#5a544e", fontWeight: "bold", marginBottom: "8px", display: "block" }}>是否需要卸甲？</label>
           <div style={{ display: "flex", gap: "10px" }}>
