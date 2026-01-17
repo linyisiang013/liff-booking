@@ -50,16 +50,26 @@ export default function LiffBookingPage() {
       .catch(err => console.error("獲取時段失敗", err));
   }, [formData.date]);
 
-  // --- 日期限制邏輯 (17號 20:00) ---
+  // --- 日期限制邏輯 (緊急開啟修正) ---
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
+  
+  // 限制 A: 最早只能看「上個月」
   const minDate = new Date(currentYear, currentMonth - 1, 1);
-  const openThreshold = new Date(currentYear, currentMonth, 17, 20, 0, 0);
+
+  // 限制 B: 下個月開放時間
+  // ▼▼▼▼▼▼ 修改處：強制設定為 1 號開放，確保二月立刻能約 ▼▼▼▼▼▼
+  const openThreshold = new Date(currentYear, currentMonth, 1, 0, 0, 0);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
   let maxDate = new Date(currentYear, currentMonth, 1);
+  
+  // 因為現在一定大於 1 號，所以這裡會執行，開啟下個月
   if (now >= openThreshold) {
     maxDate = new Date(currentYear, currentMonth + 1, 1);
   }
+  
   const isPrevDisabled = viewDate <= minDate;
   const isNextDisabled = viewDate >= maxDate;
   // ---------------------------
@@ -89,7 +99,6 @@ export default function LiffBookingPage() {
     setSubmitting(true);
 
     try {
-      // 這裡將「卸甲選擇」存入 customer_phone 欄位
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,7 +181,6 @@ export default function LiffBookingPage() {
       <div style={s.card}>
         <div style={s.stepHeader}><div style={s.stepLine}></div><span style={s.stepTitle}>STEP 3 | 填寫資料</span></div>
         
-        {/* ▼▼▼ 修改處：Placeholder 改為 "您的姓名或稱呼" ▼▼▼ */}
         <input 
           type="text" 
           placeholder="您的姓名或稱呼" 
@@ -181,7 +189,7 @@ export default function LiffBookingPage() {
           onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
         />
         
-        {/* 卸甲選項 (後端存入 phone 欄位) */}
+        {/* 卸甲選項 */}
         <div style={{ marginTop: "15px", marginBottom: "15px" }}>
           <label style={{ fontSize: "14px", color: "#5a544e", fontWeight: "bold", marginBottom: "8px", display: "block" }}>是否需要卸甲？</label>
           <div style={{ display: "flex", gap: "10px" }}>
