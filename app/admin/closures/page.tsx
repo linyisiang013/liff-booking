@@ -1,160 +1,200 @@
 "use client";
+import { useState, useEffect } from "react";
+import { createClient } from '@supabase/supabase-js';
 
-import { useEffect, useState } from "react";
-
-const TIMES = ["09:40", "13:00", "16:00", "19:20"];
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function AdminClosures() {
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [viewDate, setViewDate] = useState(new Date());
-  const [closedSlots, setClosedSlots] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [configSlots, setConfigSlots] = useState<string[]>([]); // 當天原本有的時段
+  const [closedSlots, setClosedSlots] = useState<string[]>([]); // 已經被排休(關閉)的時段
   const [loading, setLoading] = useState(false);
 
-  // 初始化日期 (避免 Hydration Error)
-  useEffect(() => {
-    setSelectedDate(new Date().toISOString().split('T')[0]);
-  }, []);
+  const [viewDate, setViewDate] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
-  // 讀取排休狀態
-  const load = async (dateStr: string) => {
-    if (!dateStr) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/availability?date=${dateStr}&t=${Date.now()}`);
-      const result = await res.json();
-      // 格式化時間，去掉秒數以便比對
-      const formatted = (result.closedOnly || []).map((t: string) => t.substring(0, 5));
-      setClosedSlots(formatted);
-    } catch (err) {
-      console.error("載入失敗", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 當日期改變時，執行兩件事：
+  // 1. 查這一天是星期幾，去抓原本設定的時段 (time_slots_config)
+  // 2. 查這一天有哪些時段已經被「排休」 (closures)
   useEffect(() => {
-    if (selectedDate) load(selectedDate);
+    const fetchData = async () => {
+      setLoading(true);
+      const dayOfWeek = new Date(selectedDate).getDay(); // 0=週日, 1=週一...
+
+      try {
+        // 1. 抓基本時段設定
+        const { data: configData } = await supabase
+          .from('time_slots_config')
+          .select('slots')
+          .eq('day_of_week', dayOfWeek)
+          .single();
+        
+        const slots = configData?.slots || [];
+        setConfigSlots(slots);
+
+        // 2. 抓排休紀錄
+        const { data: closureData } = await supabase
+          .from('closures')
+          .select('slot_time')
+          .eq('date', selectedDate);
+        
+        // 整理成陣列，例如 ['13:00', '16:00']
+        const closed = closureData?.map((c: any) => c.slot_time) || [];
+        setClosedSlots(closed);
+
+      } catch (error) {
+        console.error("讀取失敗:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
   }, [selectedDate]);
 
-  // 切換排休/開放
-  const toggleSlot = async (time: string, isClosed: boolean) => {
-    const actionLabel = isClosed ? "恢復開放" : "設定排休";
-    if (!confirm(`確定要將 ${selectedDate} ${time} ${actionLabel} 嗎？`)) return;
+  // 切換排休狀態
+  const toggleClosure = async (time: string) => {
+    const isClosed = closedSlots.includes(time);
 
-    try {
-      let res;
-      if (isClosed) {
-        // 如果原本是關閉的 -> 執行 DELETE (恢復開放)
-        // 使用 encodeURIComponent 確保時間格式在 URL 中傳輸正確
-        const url = `/api/admin/closures?date=${selectedDate}&slot_time=${encodeURIComponent(time)}`;
-        res = await fetch(url, { method: "DELETE" });
-      } else {
-        // 如果原本是開放的 -> 執行 POST (設定排休)
-        res = await fetch("/api/admin/closures", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: selectedDate, slot_time: time }),
-        });
+    if (isClosed) {
+      // 如果原本是關閉 -> 解除排休 (刪除紀錄)
+      const { error } = await supabase
+        .from('closures')
+        .delete()
+        .match({ date: selectedDate, slot_time: time });
+      
+      if (!error) {
+        setClosedSlots(prev => prev.filter(t => t !== time));
       }
-
-      if (res.ok) {
-        alert(`${actionLabel}成功！`);
-        load(selectedDate); // 成功後重新整理狀態
+    } else {
+      // 如果原本是開放 -> 設定排休 (新增紀錄)
+      const { error } = await supabase
+        .from('closures')
+        .insert({ date: selectedDate, slot_time: time });
+      
+      if (!error) {
+        setClosedSlots(prev => [...prev, time]);
       } else {
-        const errorData = await res.json();
-        alert(`操作失敗: ${errorData.error || "未知錯誤"}`);
+        alert("設定失敗，請檢查網路");
       }
-    } catch (err) {
-      console.error(err);
-      alert("網路連線異常");
     }
   };
 
   // 日曆邏輯
-  const days = [];
-  const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
-  const lastDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
-  for (let i = 1; i <= lastDate; i++) days.push(i);
+  const calendarDays = (() => {
+    const days = [];
+    const date = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+    const firstDayIndex = date.getDay(); 
+    while (date.getMonth() === viewDate.getMonth()) {
+      days.push(new Date(date));
+      date.setDate(date.getDate() + 1);
+    }
+    return { days, firstDayIndex };
+  })();
 
-  if (!selectedDate) return null; // 等待客戶端初始化
+  const { days, firstDayIndex } = calendarDays;
 
   return (
-    <div style={s.page}>
-      <button onClick={() => window.location.href='/admin'} style={s.backBtn}>⬅ 回管理中心</button>
-      <h2 style={s.title}>🔒 店家排休設定</h2>
+    <div style={s.container}>
+      <div style={s.header}>
+        <button onClick={() => window.location.href = '/admin'} style={s.backBtn}>⬅ 回管理中心</button>
+        <h2 style={s.title}>🔒 店家排休設定</h2>
+      </div>
 
       {/* 日曆區塊 */}
       <div style={s.card}>
-        <div style={s.monthBar}>
-          <button style={s.navBtn} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1))}>◀</button>
-          <div style={{fontWeight: "bold", fontSize: "18px"}}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</div>
-          <button style={s.navBtn} onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1))}>▶</button>
+        <div style={s.calendarHeader}>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} style={s.navBtn}>◀</button>
+          <b style={{fontSize: "16px"}}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</b>
+          <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} style={s.navBtn}>▶</button>
         </div>
-
+        
         <div style={s.calendarGrid}>
-          {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekHead}>{d}</div>)}
-          {Array(firstDay).fill(null).map((_, i) => <div key={`e-${i}`} />)}
-          {days.map(d => {
-            const dateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const isSel = selectedDate === dateStr;
+          {["日", "一", "二", "三", "四", "五", "六"].map(d => <div key={d} style={s.weekLabel}>{d}</div>)}
+          {Array(firstDayIndex).fill(null).map((_, i) => <div key={`empty-${i}`}></div>)}
+          {days.map(day => {
+            const ds = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
+            const isSelected = selectedDate === ds;
             return (
-              <button key={d} onClick={() => setSelectedDate(dateStr)} 
-                style={{ 
-                  ...s.dayCell, 
-                  backgroundColor: isSel ? "#8c7e6d" : "#fff", 
-                  color: isSel ? "#fff" : "#333",
-                  border: isSel ? "1.5px solid #8c7e6d" : "1.5px solid #eee"
-                }}>
-                {d}
-              </button>
+              <div key={ds} onClick={() => setSelectedDate(ds)} 
+                style={{ ...s.dayCell, backgroundColor: isSelected ? "#8c7e6d" : "transparent", color: isSelected ? "#fff" : "#5a544e" }}>
+                {day.getDate()}
+              </div>
             );
           })}
         </div>
       </div>
 
-      {/* 時段操作區塊 */}
-      <div style={{ marginTop: "24px" }}>
-        <h3 style={s.sectionTitle}>📅 {selectedDate} 時段設定</h3>
-        {loading ? <p style={{textAlign:"center", color:"#999"}}>載入中...</p> : (
-          <div style={s.slotGrid}>
-            {TIMES.map(t => {
-              const isClosed = closedSlots.includes(t);
-              return (
-                <button 
-                  key={t} 
-                  onClick={() => toggleSlot(t, isClosed)}
-                  style={{
-                    ...s.slotBtn,
-                    backgroundColor: isClosed ? "#fee2e2" : "#f0fdf4", // 紅色底 vs 綠色底
-                    color: isClosed ? "#b91c1c" : "#166534", // 紅色字 vs 綠色字
-                    borderColor: isClosed ? "#fca5a5" : "#bbf7d0",
-                    textDecoration: isClosed ? "line-through" : "none"
-                  }}
-                >
-                  <div style={{fontSize: "16px", fontWeight: "bold"}}>{t}</div>
-                  <div style={{fontSize: "12px"}}>{isClosed ? "已關閉 (點擊恢復)" : "開放中 (點擊排休)"}</div>
-                </button>
-              );
-            })}
-          </div>
+      {/* 時段設定區塊 */}
+      <div style={{marginTop: "25px"}}>
+        <h4 style={s.sectionTitle}>📅 {selectedDate} 時段狀態</h4>
+        <p style={{fontSize: "12px", color: "#999", marginBottom: "15px", textAlign: "center"}}>
+          點擊時段可切換 <span style={{color:"#52c41a"}}>開放</span> / <span style={{color:"#ff4d4f"}}>排休</span>
+        </p>
+        
+        {loading ? <p style={{textAlign:"center", color:"#ccc"}}>讀取中...</p> : (
+          configSlots.length === 0 ? (
+            <div style={s.emptyState}>本日設定為「不開放」或無時段資料</div>
+          ) : (
+            <div style={s.slotGrid}>
+              {configSlots.map(time => {
+                const isClosed = closedSlots.includes(time);
+                return (
+                  <button 
+                    key={time} 
+                    onClick={() => toggleClosure(time)}
+                    style={{
+                      ...s.slotBtn,
+                      backgroundColor: isClosed ? "#fff1f0" : "#f6ffed",
+                      borderColor: isClosed ? "#ffccc7" : "#b7eb8f",
+                      color: isClosed ? "#ff4d4f" : "#389e0d"
+                    }}
+                  >
+                    <div style={{fontSize: "18px", fontWeight: "bold"}}>{time}</div>
+                    <div style={{fontSize: "12px", marginTop: "4px"}}>
+                      {isClosed ? "🚫 已排休 (關閉)" : "✅ 開放中"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
     </div>
   );
 }
 
-// 樣式表
-const s: Record<string, any> = {
-  page: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#fcfaf7", minHeight: "100vh", fontFamily: "sans-serif" },
-  backBtn: { padding: "8px 16px", borderRadius: "8px", border: "1px solid #ddd", cursor: "pointer", backgroundColor: "#fff", marginBottom: "16px" },
-  title: { color: "#8c7e6d", textAlign: "center", marginBottom: "20px" },
-  card: { backgroundColor: "#fff", padding: "20px", borderRadius: "16px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" },
-  monthBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" },
-  navBtn: { border: "1px solid #ddd", background: "#fff", padding: "5px 12px", borderRadius: "6px", cursor: "pointer" },
-  calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "8px" },
-  weekHead: { textAlign: "center", fontSize: "12px", color: "#999", paddingBottom: "10px" },
-  dayCell: { padding: "12px 0", cursor: "pointer", borderRadius: "10px", fontSize: "14px", fontWeight: "bold" },
-  sectionTitle: { fontSize: "16px", color: "#555", marginBottom: "12px", fontWeight: "bold" },
-  slotGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" },
-  slotBtn: { padding: "16px 10px", borderRadius: "12px", border: "2px solid", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }
+const s = {
+  container: { padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#FAF9F6", minHeight: "100vh", fontFamily: "sans-serif" },
+  header: { display: "flex", alignItems: "center", marginBottom: "20px", position: "relative" as any },
+  backBtn: { position: "absolute" as any, left: 0, padding: "8px 12px", border: "1px solid #ddd", background: "#fff", borderRadius: "20px", cursor: "pointer", fontSize: "12px", color: "#666" },
+  title: { flex: 1, textAlign: "center" as any, color: "#8c7e6d", margin: 0, fontSize: "18px" },
+  
+  card: { backgroundColor: "#fff", padding: "15px", borderRadius: "15px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" },
+  calendarHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", padding: "0 10px" },
+  navBtn: { border: "none", background: "none", fontSize: "18px", cursor: "pointer", color: "#555" },
+  calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center" as any, gap: "5px" },
+  weekLabel: { fontSize: "12px", color: "#999", paddingBottom: "10px" },
+  dayCell: { padding: "8px 0", cursor: "pointer", borderRadius: "8px", fontSize: "14px", transition: "0.2s" },
+
+  sectionTitle: { color: "#8c7e6d", textAlign: "center" as any, marginBottom: "5px" },
+  slotGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" },
+  slotBtn: { 
+    padding: "20px", 
+    border: "2px solid", 
+    borderRadius: "12px", 
+    cursor: "pointer", 
+    transition: "all 0.2s",
+    display: "flex",
+    flexDirection: "column" as any,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  emptyState: { textAlign: "center" as any, padding: "30px", backgroundColor: "#fff", borderRadius: "12px", color: "#ccc" }
 };
