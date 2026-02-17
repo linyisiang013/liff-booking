@@ -8,14 +8,14 @@ const supabase = createClient(
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const date = searchParams.get('date'); // 格式: 2026-02-17
+  const date = searchParams.get('date');
 
   if (!date) return NextResponse.json({ error: 'Date is required' }, { status: 400 });
 
   try {
     const dayOfWeek = new Date(date).getDay();
 
-    // 1. 查詢基本時段
+    // 1. 取得設定的時段 (格式通常是 HH:MM)
     const { data: configData } = await supabase
       .from('time_slots_config')
       .select('slots')
@@ -24,38 +24,34 @@ export async function GET(request: Request) {
     
     const allSlots = configData?.slots || [];
 
-    // 2. 查詢「已被預約」的時段 (bookings)
-    // 這裡使用 maybeSingle 避免報錯，並確保抓取所有符合日期的資料
-    const { data: bookedData, error: bookError } = await supabase
-      .from('bookings')
-      .select('slot_time')
-      .eq('date', date);
-      
-    if (bookError) console.error("Bookings Fetch Error:", bookError);
+    // 2. 取得預約與排休資料 (資料庫可能回傳 HH:MM:SS)
+    const [bookedRes, closedRes] = await Promise.all([
+      supabase.from('bookings').select('slot_time').eq('date', date),
+      supabase.from('closures').select('slot_time').eq('date', date)
+    ]);
 
-    // 3. 查詢「已被排休」的時段 (closures)
-    const { data: closedData, error: closeError } = await supabase
-      .from('closures')
-      .select('slot_time')
-      .eq('date', date);
+    // *** 關鍵修正：強力正規化函數 ***
+    // 能夠處理 "09:40:00" -> "09:40"
+    const normalize = (t: string) => {
+        if (!t) return "";
+        const trimmed = t.trim(); 
+        // 如果長度超過 5 (例如 09:40:00)，只取前 5 個字
+        return trimmed.length > 5 ? trimmed.substring(0, 5) : trimmed;
+    };
 
-    // 4. 資料清理 (去除空格，確保 "13:00 " 等於 "13:00")
-    const normalize = (t: string) => t ? t.trim() : "";
-    
-    const bookedSlots = bookedData?.map((b: any) => normalize(b.slot_time)) || [];
-    const closedSlots = closedData?.map((c: any) => normalize(c.slot_time)) || [];
+    const bookedSlots = bookedRes.data?.map((b: any) => normalize(b.slot_time)) || [];
+    const closedSlots = closedRes.data?.map((c: any) => normalize(c.slot_time)) || [];
 
-    // 5. 合併清單：這就是前端會變成灰色的所有時段
+    // 合併
     const allDisabled = Array.from(new Set([...bookedSlots, ...closedSlots]));
 
-    // 回傳
     return NextResponse.json({
-      allSlots: allSlots,
-      allDisabled: allDisabled
+      allSlots: allSlots, // 這裡保持原始設定格式
+      allDisabled: allDisabled // 這裡已經修正為無秒數格式，可以成功比對
     });
 
   } catch (error) {
-    console.error("API Critical Error:", error);
+    console.error("API Error:", error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
