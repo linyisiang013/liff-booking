@@ -6,67 +6,79 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// 1. 處理「查詢」：讓客戶端看到哪些時段已滿
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const date = searchParams.get('date');
-  if (!date) return NextResponse.json({ error: 'Date is required' }, { status: 400 });
-
-  try {
-    // 同時抓取預約(bookings)與排休(closures)
-    const [bookedRes, closedRes] = await Promise.all([
-      supabase.from('bookings').select('slot_time').eq('date', date),
-      supabase.from('closures').select('slot_time').eq('date', date)
-    ]);
-
-    // 清理字串，防止因為資料庫存 "09:40 " (多了空格) 導致比對失敗
-    const booked = bookedRes.data?.map(b => b.slot_time.trim()) || [];
-    const closed = closedRes.data?.map(c => c.slot_time.trim()) || [];
-
-    // 合併兩者回傳給前端
-    return NextResponse.json({ 
-      bookedSlots: booked, 
-      closedSlots: closed,
-      allDisabled: Array.from(new Set([...booked, ...closed]))
-    });
-  } catch (error) {
-    return NextResponse.json({ error: 'Fetch Error' }, { status: 500 });
-  }
-}
-
-// 2. 處理「預約提交」：儲存並發送 LINE 通知
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { date, slot_time, customer_name, customer_phone, item, line_user_id } = body;
+    const { line_user_id, customer_name, customer_phone, item, date, slot_time } = body;
 
-    // A. 寫入資料庫
+    // 1. 寫入資料庫 (Supabase)
     const { data, error } = await supabase
       .from('bookings')
-      .insert([{ date, slot_time, customer_name, customer_phone, item, line_user_id }]);
+      .insert([
+        { 
+          line_user_id, 
+          customer_name, 
+          customer_phone, 
+          item, 
+          date, 
+          slot_time 
+        }
+      ])
+      .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Supabase Write Error:", error);
+      // 如果是重複預約 (違反 Unique 約束)，回傳特定錯誤
+      if (error.code === '23505') {
+        return NextResponse.json({ error: '該時段稍早在大約 1 秒前被搶走了！請選擇其他時段。' }, { status: 409 });
+      }
+      throw error;
+    }
 
-    // B. 發送 LINE 訊息通知 (Messaging API)
-    if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+    // 2. 發送 LINE 通知 (通知官方帳號 / 管理員 / 用戶)
+    // 這裡使用 "Push Message" 給預約的用戶確認，或 "Broadcast" 給管理員
+    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    
+    if (token) {
+      // 這裡發送給「預約的客戶」確認訊息
+      // 如果您希望通知「管理員」，通常需要管理員的 User ID，或者使用 LINE Notify Token
+      // 這裡示範發送給當前操作的用戶 (line_user_id)
+      await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          to: line_user_id,
+          messages: [
+            {
+              type: 'text',
+              text: `【預約成功確認】\n\n感謝 ${customer_name} 的預約！\n日期：${date}\n時間：${slot_time}\n項目：${item}\n\n請準時光臨，若需更改請直接傳訊聯繫。`
+            }
+          ]
+        })
+      });
+      
+      // 如果您先前是用 Broadcast (廣播) 來通知管理員，請取消註解下面這段：
+      /*
       await fetch('https://api.line.me/v2/bot/message/broadcast', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          messages: [{
-            type: 'text',
-            text: `🔔 新預約通知！\n日期：${date}\n時間：${slot_time}\n客戶：${customer_name}\n項目：${item}\n電話：${customer_phone}`
-          }]
+          messages: [{ type: 'text', text: `🔔 新增一筆預約！\n${date} ${slot_time}\n${customer_name} (${item})` }]
         })
       });
+      */
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, data });
+
   } catch (error: any) {
-    console.error("Booking Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Server Error:", error);
+    return NextResponse.json({ error: error.message || '預約失敗' }, { status: 500 });
   }
 }
