@@ -24,7 +24,7 @@ export default function LiffBookingPage() {
   });
 
   const today = new Date();
-  const isAfter17th = today.getDate() >= 17;
+  const isAfter17th = today.getDate() >= 15;
 
   useEffect(() => {
     const initLiff = async () => {
